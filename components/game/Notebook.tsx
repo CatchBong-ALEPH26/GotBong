@@ -6,6 +6,7 @@ import type { GameActions } from "@/lib/api/useGame";
 import { Modal } from "@/components/ui/Modal";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
 import { PinnableText } from "./PinnableText";
+import { play } from "@/lib/audio/sound";
 
 export type AccuseDraft = { who: string; motive: string };
 export const emptyAccuseDraft: AccuseDraft = { who: "", motive: "" };
@@ -310,6 +311,11 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
   const motive = accuse.motive.trim();
   const ready = !!suspect && !!motive;
   const done = view.me.submitted;
+  // 동기 문장 도우미: 계기(무슨 일 때문에)와 목적(무엇을 하려고)이 들어 있는지 가볍게 본다. 제출을 막지는 않는다.
+  const hasCause = /때문|해서|당해|당했|받아서|받고|화가|서운|억울|놀림|놀려/.test(motive);
+  const hasGoal = /려고|려는|려 했|싶어서|싶었|위해|하게 하|만들/.test(motive);
+  const tooShort = motive.length > 0 && motive.length < 10;
+  const myNotes = suspect ? view.notes.filter((n) => n.suspectId === suspect.id) : [];
 
   return (
     <>
@@ -335,16 +341,40 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
             </div>
           )}
           <p>왜 {view.scenario.victim}의 프로그램을 없앴을까?</p>
-          <textarea
-            className="motive-input"
-            rows={3}
-            maxLength={500}
-            value={accuse.motive}
-            disabled={done}
-            onChange={(e) => set({ motive: e.target.value })}
-            placeholder="동기를 내 말로 적는다. 표현이 달라도 뜻이 맞으면 정답이다."
-            aria-label="동기"
-          />
+          <div className="motive-field">
+            <textarea
+              className="motive-input"
+              rows={3}
+              maxLength={500}
+              value={accuse.motive}
+              disabled={done}
+              onChange={(e) => set({ motive: e.target.value })}
+              placeholder="예) 오전에 ○○한 일 때문에, △△하려고"
+              aria-label="동기"
+              aria-describedby="motive-help"
+            />
+            <span className="motive-count">{accuse.motive.length}/500</span>
+          </div>
+          {!done && (
+            <div id="motive-help" className="motive-help">
+              <p className="pencil small">한 문장에 두 가지를 담으면 좋다. 표현이 달라도 뜻이 맞으면 정답이다.</p>
+              <ul className="motive-checks">
+                <li className={hasCause ? "ok" : ""}>{hasCause ? "✓" : "○"} 계기: 무슨 일 때문에</li>
+                <li className={hasGoal ? "ok" : ""}>{hasGoal ? "✓" : "○"} 목적: 무엇을 하려고</li>
+              </ul>
+              {tooShort && <p className="pencil small warn-ink">조금 더 구체적으로 써 보자. 그래도 제출은 된다.</p>}
+            </div>
+          )}
+          {!done && myNotes.length > 0 && (
+            <div className="motive-notes">
+              <p className="pencil small">{suspect!.name}에 대해 밑줄 친 말</p>
+              <ul>
+                {myNotes.slice(-4).map((n) => (
+                  <li key={n.id}>“{n.text}”</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </section>
       <section className="page">
@@ -355,9 +385,14 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
           </div>
         ) : (
           <>
+            <ul className="ready-list">
+              <li className={suspect ? "ok" : ""}>{suspect ? "✓" : "○"} 범인을 골랐다</li>
+              <li className={motive ? "ok" : ""}>{motive ? "✓" : "○"} 동기를 썼다</li>
+            </ul>
             <ul className="pencil-list">
               <li>질문이 남아 있어도 제출할 수 있다.</li>
               <li>범인과 동기를 모두 맞혀야 해결이다.</li>
+              <li>AI가 동기의 뜻을 채점하느라 몇 초 걸린다.</li>
             </ul>
             <button className="stamp-btn" disabled={!ready} onClick={() => (setError(null), setConfirm(true))}>
               제출 · 한 번뿐
@@ -380,6 +415,7 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
                   setError(null);
                   try {
                     await actions.accuse({ suspectId: accuse.who, motive });
+                    play("stamp");
                     setConfirm(false);
                   } catch (e) {
                     setError((e as Error).message);
@@ -388,15 +424,16 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
                   }
                 }}
               >
-                {busy ? "채점 중…" : error ? "다시 제출" : "제출한다"}
+                {busy ? "채점하는 중…" : error ? "같은 답으로 다시 제출" : "제출한다"}
               </button>
             </>
           }
         >
           <p className="say">
             범인은 <b>{suspect?.name}</b>.<br />
-            동기는 <b>{motive}</b>
+            동기는 “{motive}”
           </p>
+          {!busy && !error && (!hasCause || !hasGoal) && <p className="dim">계기나 목적이 빠진 것 같다. 다시 보고 싶으면 “다시 볼래”.</p>}
           {error ? <p className="warn" role="alert">{error} 아직 제출되지 않았다.</p> : <p className="warn">제출하면 조사와 질문이 끝나고 고칠 수 없다.</p>}
         </Modal>
       )}

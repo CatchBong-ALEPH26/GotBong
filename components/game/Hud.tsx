@@ -2,13 +2,21 @@
 import type { GameView } from "@/lib/view/types";
 import { questionsLeft } from "@/lib/view/rules";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
+import { setSound, useSoundOn } from "@/lib/audio/sound";
 
-/** 화면 위 작은 표시들: 수첩, 장소, 남은 질문. 서버가 테스트 모드(고정 응답)면 알려 준다. */
-export function Hud({ view, sceneId, onMove, onNotebook }: { view: GameView; sceneId: string; onMove: (id: string) => void; onNotebook: () => void }) {
+/**
+ * 화면 위 작은 표시들: 수첩, 장소, 찾은 단서(누르면 힌트), 남은 질문, 소리.
+ * 서버가 테스트 모드(고정 응답)면 알려 준다.
+ */
+export function Hud(props: { view: GameView; sceneId: string; onMove: (id: string) => void; onNotebook: () => void; onHint: () => void; hintReady: boolean }) {
+  const { view, sceneId, onMove, onNotebook, onHint, hintReady } = props;
   const scenes = view.scenario.scenes;
   const here = scenes.find((s) => s.id === sceneId)!;
   const others = scenes.filter((s) => s.id !== sceneId);
   const qLeft = questionsLeft(view);
+  const found = view.clues.filter((c) => c.found).length;
+  const total = view.clues.length;
+  const soundOn = useSoundOn();
   return (
     <div className="hud">
       <button className="px-btn hud-note" onClick={onNotebook} aria-label={`수첩 열기, 단서 ${view.evidence.length}개`}>
@@ -28,9 +36,20 @@ export function Hud({ view, sceneId, onMove, onNotebook }: { view: GameView; sce
         {view.mode === "fixture" && (
           <span className="px-chip chip-warn" title="AI 키가 없어 고정 응답으로 동작 중">테스트 모드</span>
         )}
+        <button
+          className={`px-chip hud-clues ${found === total ? "chip-done" : ""} ${hintReady ? "chip-glow" : ""}`}
+          onClick={onHint}
+          title="막히면 눌러서 생각해 보기"
+          aria-label={`현장 단서 ${total}개 중 ${found}개 찾음. 눌러서 힌트 보기`}
+        >
+          <PixelIcon name="bulb" size={14} /> 단서 {found}/{total}
+        </button>
         <span className={`px-chip ${qLeft <= 5 ? "chip-warn" : ""}`} aria-label={`남은 질문 ${qLeft}개`}>
           남은 질문 {qLeft}
         </span>
+        <button className="px-chip hud-sound" onClick={() => setSound(!soundOn)} aria-pressed={soundOn} aria-label={soundOn ? "소리 끄기" : "소리 켜기"} title={soundOn ? "소리 끄기" : "소리 켜기"}>
+          <PixelIcon name={soundOn ? "sound" : "mute"} size={16} />
+        </button>
       </div>
     </div>
   );

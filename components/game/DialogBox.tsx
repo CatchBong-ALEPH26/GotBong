@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameView, Message } from "@/lib/view/types";
 import { questionsLeft } from "@/lib/view/rules";
 import { Portrait } from "@/components/pixel/Portrait";
@@ -10,11 +10,11 @@ export type Draft = { question: string; clueId: string | null };
 export const emptyDraft: Draft = { question: "", clueId: null };
 
 export type Dialog =
-  | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again" }
+  | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again"; hint?: boolean }
   | { kind: "prompt"; key: string; text: string }
   | { kind: "notice"; key: string; text: string } // 다시 물어야 하는 안내 (차감 없음). 써 둔 질문은 남아 있다
   | { kind: "edit" }
-  | { kind: "thinking" }
+  | { kind: "thinking"; since: number }
   | { kind: "answer"; messageId: string; animate: boolean };
 
 /** 하단 레트로 대사창. 관찰문, 안내, 질문 입력, 답변을 같은 자리에서 한 번에 하나씩 보여 준다. */
@@ -41,15 +41,16 @@ export function DialogBox(props: {
 
   if (dialog.kind === "narrate" || dialog.kind === "prompt") {
     const title = dialog.kind === "narrate" ? dialog.title : "탐정";
+    const isHint = dialog.kind === "narrate" && dialog.hint;
     return (
-      <section className="dialog px" aria-live="polite">
+      <section className={`dialog px ${isHint ? "is-hint" : ""}`} aria-live="polite">
         {dialog.kind === "narrate" && dialog.image && (
           <div className={`dialog-face ${dialog.image.item ? "item" : ""}`}>
             <Portrait src={dialog.image.src} alt={dialog.image.alt} />
           </div>
         )}
         <div className="dialog-main">
-          <span className="px-tag">{title}</span>
+          <span className="px-tag">{isHint && <PixelIcon name="bulb" size={12} />} {title}</span>
           <p className="say">{dialog.text}</p>
           {dialog.kind === "narrate" && dialog.found && (
             <p className={`found ${dialog.found}`}>{dialog.found === "new" ? "▶ 수첩 단서 노트에 적었다" : "▶ 이미 수첩에 있는 단서다"}</p>
@@ -82,15 +83,7 @@ export function DialogBox(props: {
 
   const log = view.messages.filter((m) => m.suspectId === suspect.id);
 
-  if (dialog.kind === "thinking")
-    return (
-      <section className="dialog px" aria-busy="true">
-        <div className="dialog-main">
-          <span className="px-tag">{suspect.name}</span>
-          <p className="say thinking" aria-label="대답을 생각하는 중">···</p>
-        </div>
-      </section>
-    );
+  if (dialog.kind === "thinking") return <Thinking name={suspect.name} since={dialog.since} />;
 
   if (dialog.kind === "answer") {
     const m = view.messages.find((x) => x.id === dialog.messageId);
@@ -175,6 +168,30 @@ export function DialogBox(props: {
             {clue && !draft.question.trim() ? "내밀기 · 1회" : "묻기 · 1회"}
           </button>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/** AI 답변을 기다리는 2~4초. 말줄임이 하나씩 찍히고, 오래 걸리면 안내 문장이 바뀐다. 요청 중에는 입력을 받지 않는다. */
+function Thinking({ name, since }: { name: string; since: number }) {
+  const [now, setNow] = useState(since);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 400);
+    return () => clearInterval(t);
+  }, []);
+  const sec = (now - since) / 1000;
+  const line = sec < 2.5 ? `${name} · 잠깐 생각한다` : sec < 7 ? `${name} · 말을 고르는 것 같다` : "대답이 늦어진다. 조금만 기다려 보자";
+  return (
+    <section className="dialog px" aria-busy="true">
+      <div className="dialog-main">
+        <span className="px-tag">{name}</span>
+        <p className="say thinking-dots" aria-hidden="true">
+          <span>·</span>
+          <span>·</span>
+          <span>·</span>
+        </p>
+        <p className="found again" role="status">{line}</p>
       </div>
     </section>
   );

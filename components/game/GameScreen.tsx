@@ -9,6 +9,14 @@ import { EvidenceBag } from "./EvidenceBag";
 import { Notebook, PAGE_LOG, emptyAccuseDraft, type AccuseDraft } from "./Notebook";
 import { Closeup } from "./Closeup";
 import { GhostCutscene, IntroScreen } from "./IntroScreen";
+import { ALL_FOUND_HINT, HINTS, HINT_ORDER, fillVictim } from "@/lib/scene/classroom";
+import { play, setBgm } from "@/lib/audio/sound";
+
+/** 새 단서 없이 이만큼 지나면 단서 표시가 반짝이고(살짝 권함), 더 지나면 혼잣말 힌트가 저절로 나온다. */
+const HINT_GLOW_MS = 45_000;
+const HINT_AUTO_MS = 100_000;
+/** 아무것도 없는 곳을 연달아 이만큼 누르면 단서 표시가 반짝인다. */
+const EMPTY_CLICKS_GLOW = 4;
 
 type Overlay = null | { kind: "notebook" } | { kind: "bag" };
 
@@ -36,6 +44,12 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   const [cutscene, setCutscene] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // 막힘 감지: 마지막으로 새 단서를 찾은 시각, 연달아 헛짚은 횟수, 단서별로 보여 준 힌트 단계
+  const [lastProgress, setLastProgress] = useState(() => Date.now());
+  const [emptyClicks, setEmptyClicks] = useState(0);
+  const [hintsShown, setHintsShown] = useState<Record<string, number>>({});
+  const [autoHinted, setAutoHinted] = useState<string | null>(null);
+  const [tick, setTick] = useState(() => Date.now());
   const done = view.me.submitted;
   const suspectOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)!;
   const closeup = closeupId ? view.scenario.closeups[closeupId] : null;
@@ -56,6 +70,14 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
 
   function look(spot: Hotspot) {
     const r = actions.investigate(spot.id);
+    if (r.evidence && r.isNew) {
+      play("found");
+      setLastProgress(Date.now());
+      setEmptyClicks(0);
+    } else {
+      play("tick");
+      setEmptyClicks((n) => n + 1);
+    }
     if (r.evidence) {
       setDialog({ kind: "narrate", key: `${spot.id}-${Date.now()}`, title: r.evidence.name, text: r.evidence.text, image: { src: r.evidence.icon, alt: r.evidence.name, item: true }, found: r.isNew ? "new" : "again" });
     } else {
@@ -66,6 +88,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   function onSpot(spot: Hotspot) {
     if (spot.closeup) {
       setTarget(null);
+      play("open");
       setCloseupId(spot.closeup);
       setDialog({ kind: "narrate", key: `cu-${spot.id}-${Date.now()}`, title: spot.label, text: "가까이 들여다본다. 수상한 곳을 눌러 보자." });
       return;
@@ -82,6 +105,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       return setDialog({ kind: "edit" });
     }
     if (h.type === "spot") return onSpot(h.spot);
+    play("tick");
+    setEmptyClicks((n) => n + 1);
     setDialog({ kind: "narrate", key: `empty-${Date.now()}`, title: "살펴보기", text: view.scenario.emptyText });
   }
 
@@ -116,19 +141,62 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   async function ask() {
     if (!target) return;
     const q = draft;
-    setDialog({ kind: "thinking" });
+    play("send");
+    setDialog({ kind: "thinking", since: Date.now() });
     try {
       const r = await actions.ask({ suspectId: target, question: q.question.trim(), clueId: q.clueId });
       if (r.type === "notice") {
+        play("notice");
         setDialog({ kind: "notice", key: `notice-${Date.now()}`, text: r.text });
         return;
       }
       setDraft(emptyDraft);
+      if (r.message.emotion === "flustered") play("fluster");
       setDialog({ kind: "answer", messageId: r.message.id, animate: true });
     } catch (e) {
+      play("notice");
       setDialog({ kind: "notice", key: `err-${Date.now()}`, text: `${(e as Error).message} 질문은 차감되지 않았다. 같은 내용으로 다시 물을 수 있다.` });
     }
   }
+
+  /** 아직 못 찾은 단서 하나에 대해 혼잣말 힌트를 준다. 같은 단서를 다시 물으면 더 구체적으로 말한다. */
+  const missing = HINT_ORDER.find((id) => view.clues.some((c) => c.id === id && !c.found)) ?? null;
+  function hint() {
+    setEmptyClicks(0);
+    setLastProgress(Date.now());
+    if (!missing) return setDialog({ kind: "narrate", key: `hint-${Date.now()}`, title: "생각", text: ALL_FOUND_HINT, hint: true });
+    const level = Math.min(hintsShown[missing] ?? 0, 1);
+    setHintsShown((h) => ({ ...h, [missing]: (h[missing] ?? 0) + 1 }));
+    setDialog({ kind: "narrate", key: `hint-${Date.now()}`, title: "생각", text: fillVictim(HINTS[missing][level], view.scenario.victim), hint: true });
+  }
+  const idle = !done && !overlay && !closeup && !cutscene && (dialog.kind === "narrate" || dialog.kind === "prompt");
+  const stuckMs = tick - lastProgress;
+  const hintReady = !!missing && (stuckMs > HINT_GLOW_MS || emptyClicks >= EMPTY_CLICKS_GLOW);
+
+  // 5초마다 막힘 여부를 다시 본다. 오래 막혀 있으면 단서마다 한 번씩 흐릿한 힌트를 저절로 말한다.
+  useEffect(() => {
+    const t = setInterval(() => setTick(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, []);
+  const autoHintDue = view.me.started && idle && !!missing && autoHinted !== missing && stuckMs > HINT_AUTO_MS && !(hintsShown[missing] > 0);
+  useEffect(() => {
+    if (!autoHintDue) return;
+    setAutoHinted(missing);
+    hint();
+    // 조건이 참으로 바뀌는 순간 한 번만 말한다. hint·missing은 그 순간의 값을 쓰면 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoHintDue]);
+
+  // 표정이 바뀔 때 깜빡이지 않게 상반신·초상 그림을 미리 받아 둔다.
+  useEffect(() => {
+    for (const s of view.scenario.suspects) for (const src of [...Object.values(s.sprites), ...Object.values(s.portraits)]) new Image().src = src;
+  }, [view.scenario.suspects]);
+
+  // 배경음은 수사 중에만 (소리를 켰을 때).
+  useEffect(() => {
+    setBgm(view.me.started && !done);
+    return () => setBgm(false);
+  }, [view.me.started, done]);
 
   function pin(m: Message, s: string) {
     actions.pinNote(m.id, s);
@@ -140,7 +208,10 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, select, [role=dialog]:not(.closeup)") || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.toLowerCase() === "n") setOverlay({ kind: "notebook" });
+      if (e.key.toLowerCase() === "n") {
+        play("open");
+        setOverlay({ kind: "notebook" });
+      }
       if (e.key === "Escape") setCloseupId(null);
     };
     window.addEventListener("keydown", onKey);
@@ -152,6 +223,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       <IntroScreen
         view={view}
         onStart={() => {
+          play("open");
+          setLastProgress(Date.now());
           actions.beginInvestigation();
           setCutscene(true);
         }}
@@ -166,11 +239,25 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
         <p className="dim">창을 넓히거나 컴퓨터로 접속해 줘.</p>
       </div>
       <div className="stage-frame">
-        <Hud view={view} sceneId={sceneId} onMove={moveTo} onNotebook={() => setOverlay({ kind: "notebook" })} />
+        <Hud
+          view={view}
+          sceneId={sceneId}
+          onMove={moveTo}
+          onNotebook={() => {
+            play("open");
+            setOverlay({ kind: "notebook" });
+          }}
+          onHint={() => {
+            setCloseupId(null);
+            setTarget(null);
+            hint();
+          }}
+          hintReady={hintReady && idle}
+        />
         <Stage view={view} scene={scene} target={target} disabled={done} onHit={onHit} />
         {closeup && <Closeup view={view} data={closeup} onSpot={onSpot} onOpen={setCloseupId} onClose={() => setCloseupId(null)} />}
         {talking && talker && (
-          <figure key={talker.id} className="talk-figure" aria-label={`${talker.name} · 대화 중`}>
+          <figure key={talker.id} className={`talk-figure ${dialog.kind === "thinking" ? "is-thinking" : ""}`} aria-label={`${talker.name} · 대화 중`}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 스프라이트 원본 그대로 */}
             <img key={talkEmotion} src={talker.sprites[talkEmotion]} alt={`${talker.name}의 표정`} draggable={false} className={talkEmotion === "flustered" && dialog.kind === "answer" ? "shake" : ""} />
           </figure>

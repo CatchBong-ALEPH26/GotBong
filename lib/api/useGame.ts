@@ -185,6 +185,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
       scenario,
       me: { questionsUsed: session.maxQuestions - session.remaining, started: local.started || session.turns.length > 0 || !!r, submitted: !!r },
       checked: local.checked,
+      clues: session.clues.map((c) => ({ id: c.id, title: c.title, found: c.id in local.found, icon: CLUE_META[c.id]?.icon ?? TESTIMONY_ICON, timeLabel: CLUE_META[c.id]?.timeLabel })),
       evidence,
       messages,
       notes: local.notes,
@@ -194,8 +195,10 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
             verdict: r.score === 1 ? "win" : "lose",
             mine: { culprit: nameOf(local.mine?.suspectId ?? ""), motive: local.mine?.motive ?? "" },
             truth: r.truth,
-            cast: r.cast.map((c) => ({ name: c.name, title: c.title })),
+            // 서버 배정에서 역할 D가 범인이다 (HANDOFF.md §3, title도 "범인").
+            cast: r.cast.map((c) => ({ name: c.name, title: c.title, culprit: c.role === "D" || c.title === "범인" })),
             usage: {
+              pinned: local.notes.length,
               questionsUsed: session.maxQuestions - session.remaining,
               evidenceFound: clues.length,
               evidenceShown: [...new Set(messages.flatMap((m) => (m.clueId ? [evidence.find((e) => e.id === m.clueId)?.name ?? ""] : [])))].filter(Boolean),
