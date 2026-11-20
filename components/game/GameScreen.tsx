@@ -1,28 +1,23 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameView, Hotspot, Message } from "@/lib/view/types";
-import type { GameActions, KeyboardTestResult } from "@/lib/mock/useMockGame";
-import { keyboardTestOpen } from "@/lib/view/rules";
-import { useNow } from "@/lib/view/useNow";
+import type { GameActions } from "@/lib/api/useGame";
 import { Stage, type Hit } from "./Stage";
 import { Hud } from "./Hud";
 import { DialogBox, emptyDraft, type Dialog, type Draft } from "./DialogBox";
 import { EvidenceBag } from "./EvidenceBag";
 import { Notebook, PAGE_LOG, emptyAccuseDraft, type AccuseDraft } from "./Notebook";
 import { Closeup } from "./Closeup";
-import { KeyboardTest } from "./KeyboardTest";
 import { GhostCutscene, IntroScreen } from "./IntroScreen";
 
-type Overlay = null | { kind: "notebook" } | { kind: "bag" } | { kind: "kbtest"; preset: string | null };
+type Overlay = null | { kind: "notebook" } | { kind: "bag" };
 
 /**
- * D 형태 진행 화면: 픽셀 장면 + 레트로 대사창 (기준: 유령 키보드 규칙 v2).
+ * D 형태 진행 화면: 픽셀 장면 + 레트로 대사창. 대사는 AI 서버가 만든다.
  * 사건 소개 → (유령 연출) → 장면. 물건을 누르면 조사하고, 컴퓨터·본체는 클로즈업이 열린다.
- * 사람을 누르면 그 사람이 가운데 서고 질문하거나 증거를 내민다.
- * 시간이 끝나면 수첩의 최종 추리 쪽이 열리고 30초 안에 제출해야 한다. 데스크톱 전용.
+ * 사람을 누르면 그 사람이 가운데 서고 질문하거나 증거를 내민다. 최종 추리는 수첩에서 제출한다. 데스크톱 전용.
  */
 export function GameScreen({ view, actions }: { view: GameView; actions: GameActions }) {
-  const now = useNow(250);
   const [sceneId, setSceneId] = useState(view.scenario.scenes[0].id);
   const scene = view.scenario.scenes.find((s) => s.id === sceneId)!;
   const [closeupId, setCloseupId] = useState<string | null>(null);
@@ -41,23 +36,12 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   const [cutscene, setCutscene] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const timedOut = useRef(false);
   const done = view.me.submitted;
   const suspectOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)!;
   const closeup = closeupId ? view.scenario.closeups[closeupId] : null;
 
-  // 시간 종료 → 제출 유예 30초 → 미제출이면 패배 (규칙 v2 3장)
-  const timeUp = !!view.endsAt && now >= view.endsAt && !done;
-  const graceLeft = view.endsAt ? view.endsAt + view.config.graceMs - now : 0;
-  useEffect(() => {
-    if (timeUp && graceLeft <= 0 && !timedOut.current) {
-      timedOut.current = true;
-      actions.accuse(null);
-    }
-  }, [timeUp, graceLeft, actions]);
-
   // 사람과 대화하는 동안(질문 입력·생각 중·답변) 그 사람을 화면 가운데 크게 보여 준다.
-  const talking = !done && !timeUp && !closeup && !!target && (dialog.kind === "edit" || dialog.kind === "thinking" || dialog.kind === "answer");
+  const talking = !done && !closeup && !!target && (dialog.kind === "edit" || dialog.kind === "thinking" || dialog.kind === "answer");
   const talker = target ? suspectOf(target) : null;
   const lastMsg = target ? [...view.messages].reverse().find((m) => m.suspectId === target) : undefined;
   const answerMsg = dialog.kind === "answer" ? view.messages.find((m) => m.id === dialog.messageId) : undefined;
@@ -70,8 +54,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }, []);
   const prompt = (text: string) => setDialog({ kind: "prompt", key: `${text}-${Date.now()}`, text });
 
-  async function look(spot: Hotspot) {
-    const r = await actions.investigate(spot.id, spot.label);
+  function look(spot: Hotspot) {
+    const r = actions.investigate(spot.id);
     if (r.evidence) {
       setDialog({ kind: "narrate", key: `${spot.id}-${Date.now()}`, title: r.evidence.name, text: r.evidence.text, image: { src: r.evidence.icon, alt: r.evidence.name, item: true }, found: r.isNew ? "new" : "again" });
     } else {
@@ -86,10 +70,6 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       setDialog({ kind: "narrate", key: `cu-${spot.id}-${Date.now()}`, title: spot.label, text: "가까이 들여다본다. 수상한 곳을 눌러 보자." });
       return;
     }
-    if (spot.action === "keyboard-test" && keyboardTestOpen(view)) {
-      setOverlay({ kind: "kbtest", preset: spot.keyboardOf ?? null });
-      return;
-    }
     look(spot);
   }
 
@@ -97,6 +77,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     if (done) return;
     if (h.type === "suspect") {
       setTarget(h.id);
+      // 지금 고른 사람의 말은 그 사람에게 내밀 수 없다 (서버 규칙).
+      if (draft.clueId && view.evidence.find((e) => e.id === draft.clueId)?.suspectId === h.id) setDraft((d) => ({ ...d, clueId: null }));
       return setDialog({ kind: "edit" });
     }
     if (h.type === "spot") return onSpot(h.spot);
@@ -118,13 +100,17 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     setOverlay({ kind: "notebook" });
   }
 
-  /** 증거를 고르면 질문에 붙인다. 대상이 없으면 사람을 고르게 한다. */
+  /** 증거를 고르면 질문에 붙인다. 대상이 없거나 그 사람 본인의 말이면 사람을 고르게 한다. */
   function present(id: string) {
+    const own = view.evidence.find((e) => e.id === id)?.suspectId;
     setDraft((d) => ({ ...d, clueId: id }));
     setOverlay(null);
     setCloseupId(null);
-    if (target) setDialog({ kind: "edit" });
-    else prompt("누구에게 이 증거를 내밀까? 장면에서 사람을 눌러 줘.");
+    if (target && target !== own) setDialog({ kind: "edit" });
+    else {
+      if (target === own) setTarget(null);
+      prompt(own ? "누구에게 이 말을 들이밀까? 말한 사람이 아닌 다른 사람을 눌러 줘." : "누구에게 이 증거를 내밀까? 장면에서 사람을 눌러 줘.");
+    }
   }
 
   async function ask() {
@@ -132,17 +118,16 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     const q = draft;
     setDialog({ kind: "thinking" });
     try {
-      const m = await actions.ask({ suspectId: target, question: q.question.trim(), clueId: q.clueId });
+      const r = await actions.ask({ suspectId: target, question: q.question.trim(), clueId: q.clueId });
+      if (r.type === "notice") {
+        setDialog({ kind: "notice", key: `notice-${Date.now()}`, text: r.text });
+        return;
+      }
       setDraft(emptyDraft);
-      setDialog({ kind: "answer", messageId: m.id, animate: true });
-    } catch {
-      setDialog({ kind: "narrate", key: `err-${Date.now()}`, title: "알림", text: "대답을 받지 못했다. 질문은 차감되지 않았다. 다시 시도해 줘." });
+      setDialog({ kind: "answer", messageId: r.message.id, animate: true });
+    } catch (e) {
+      setDialog({ kind: "notice", key: `err-${Date.now()}`, text: `${(e as Error).message} 질문은 차감되지 않았다. 같은 내용으로 다시 물을 수 있다.` });
     }
-  }
-
-  function afterTest(r: KeyboardTestResult) {
-    setOverlay(null);
-    setDialog({ kind: "narrate", key: `kb-${r.evidence.id}-${Date.now()}`, title: r.evidence.name, text: r.evidence.text, image: { src: r.evidence.icon, alt: "", item: true }, found: "new" });
   }
 
   function pin(m: Message, s: string) {
@@ -162,16 +147,12 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  useEffect(() => {
-    if (done) setDialog({ kind: "narrate", key: "submitted", title: "제출 완료", text: "추리를 제출했다. 결과를 기다리는 중…" });
-  }, [done]);
-
   if (!view.me.started) {
     return (
       <IntroScreen
         view={view}
-        onStart={async () => {
-          await actions.beginInvestigation();
+        onStart={() => {
+          actions.beginInvestigation();
           setCutscene(true);
         }}
       />
@@ -185,12 +166,11 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
         <p className="dim">창을 넓히거나 컴퓨터로 접속해 줘.</p>
       </div>
       <div className="stage-frame">
-        <Hud view={view} now={now} sceneId={sceneId} onMove={moveTo} onNotebook={() => setOverlay({ kind: "notebook" })} />
+        <Hud view={view} sceneId={sceneId} onMove={moveTo} onNotebook={() => setOverlay({ kind: "notebook" })} />
         <Stage view={view} scene={scene} target={target} disabled={done} onHit={onHit} />
         {closeup && <Closeup view={view} data={closeup} onSpot={onSpot} onOpen={setCloseupId} onClose={() => setCloseupId(null)} />}
-        {overlay?.kind === "kbtest" && <KeyboardTest view={view} actions={actions} preset={overlay.preset} onDone={afterTest} onClose={() => setOverlay(null)} />}
         {talking && talker && (
-          <figure key={talker.id} className="talk-figure" aria-label={`${talker.name}와 대화 중`}>
+          <figure key={talker.id} className="talk-figure" aria-label={`${talker.name} · 대화 중`}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 스프라이트 원본 그대로 */}
             <img key={talkEmotion} src={talker.sprites[talkEmotion]} alt={`${talker.name}의 표정`} draggable={false} className={talkEmotion === "flustered" && dialog.kind === "answer" ? "shake" : ""} />
           </figure>
@@ -214,8 +194,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
         {cutscene && <GhostCutscene onDone={() => setCutscene(false)} />}
       </div>
 
-      {overlay?.kind === "bag" && <EvidenceBag view={view} selectedId={draft.clueId} onUse={present} onClose={() => setOverlay(null)} />}
-      {(overlay?.kind === "notebook" || timeUp) && (
+      {overlay?.kind === "bag" && <EvidenceBag view={view} target={target} selectedId={draft.clueId} onUse={present} onClose={() => setOverlay(null)} />}
+      {overlay?.kind === "notebook" && (
         <Notebook
           view={view}
           actions={actions}
@@ -228,7 +208,6 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
           onPin={pin}
           onPresent={present}
           onClose={() => setOverlay(null)}
-          overtimeLeftMs={timeUp ? Math.max(0, graceLeft) : undefined}
         />
       )}
     </div>

@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -42,3 +43,6 @@ next-env.d.ts
 
 # local tool cache
 .impeccable/
+
+# AI 서버 실행 중 생기는 게임 저장 파일
+ai-server/ai-server/.data/

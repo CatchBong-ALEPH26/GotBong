@@ -21,7 +21,7 @@ export function Stage(props: { view: GameView; scene: Scene; target: string | nu
   const nameOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)?.name ?? "";
   const big = scene.hotspots.filter((h) => area(h) >= 150);
   const small = scene.hotspots.filter((h) => area(h) < 150);
-  const spot = (h: Hotspot) => <button key={h.id} className="hit" style={box(h)} tabIndex={-1} aria-label={h.label} onClick={fire({ type: "spot", spot: h })} />;
+  const spot = (h: Hotspot) => <button key={`${h.id}-${h.x}-${h.y}`} className="hit" style={box(h)} tabIndex={-1} aria-label={h.label} onClick={fire({ type: "spot", spot: h })} />;
 
   return (
     <div key={scene.id} className="stage scene-in cursor-look" onClick={fire({ type: "empty" })}>

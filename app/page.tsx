@@ -1,16 +1,10 @@
 "use client";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { SceneBackdrop } from "@/components/pixel/SceneBackdrop";
 
-/** 타이틀 화면: 닉네임, 방 만들기, 코드로 입장. */
-export default function Lobby() {
+/** 타이틀 화면. 1인용이라 바로 사건으로 들어간다. 하던 게임이 있으면 서버가 이어서 준다. */
+export default function Title() {
   const router = useRouter();
-  const [nickname, setNickname] = useState("");
-  const [code, setCode] = useState("");
-  const nameOk = nickname.trim().length > 0;
-  const codeOk = code.trim().length === 6;
-
   return (
     <main className="screen center">
       <SceneBackdrop />
@@ -20,25 +14,11 @@ export default function Lobby() {
         <p className="title-sub">스무 번의 질문으로 진실을 밝혀라</p>
       </div>
       <div className="px window lobby">
-        <span className="px-tag">탐정 등록</span>
-        <label className="px-field">
-          <span>닉네임</span>
-          <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="예: 셜록킴" />
-        </label>
-        <button className="px-btn on block" disabled={!nameOk} onClick={() => router.push("/room/" + Math.random().toString(36).slice(2, 8).toUpperCase())}>
-          새 방 만들기
+        <span className="px-tag">사건 파일</span>
+        <p className="say">범인은 게임마다 바뀐다. 네 사람에게 묻고, 범인과 동기를 맞혀라.</p>
+        <button className="px-btn on block" onClick={() => router.push("/play")}>
+          사건 시작
         </button>
-        <p className="or">또는</p>
-        <form
-          className="join"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (nameOk && codeOk) router.push("/room/" + code.trim().toUpperCase());
-          }}
-        >
-          <input value={code} maxLength={6} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="방 코드 6자리" aria-label="방 코드" />
-          <button className="px-btn" disabled={!nameOk || !codeOk}>입장</button>
-        </form>
       </div>
     </main>
   );
