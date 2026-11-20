@@ -7,13 +7,13 @@ import { PixelIcon } from "@/components/pixel/PixelIcon";
 const GROUPS: { kind: Evidence["kind"]; label: string }[] = [
   { kind: "scene", label: "현장 단서" },
   { kind: "testimony", label: "증언" },
-  { kind: "test", label: "키보드 테스트" },
 ];
 
-/** 증거 고르기 창. 현장 단서, 수첩에 적힌 증언, 키보드 테스트 결과를 모두 내밀 수 있다. */
-export function EvidenceBag({ view, selectedId, onUse, onClose }: { view: GameView; selectedId: string | null; onUse: (id: string) => void; onClose: () => void }) {
-  const [pick, setPick] = useState<string | null>(selectedId ?? view.evidence[0]?.id ?? null);
-  const cur = view.evidence.find((c) => c.id === pick) ?? null;
+/** 증거 고르기 창. 현장 단서와 다른 사람의 말(증언)을 내밀 수 있다. 지금 묻는 사람 본인의 말은 빠진다. */
+export function EvidenceBag({ view, target, selectedId, onUse, onClose }: { view: GameView; target: string | null; selectedId: string | null; onUse: (id: string) => void; onClose: () => void }) {
+  const usable = view.evidence.filter((e) => !target || e.suspectId !== target);
+  const [pick, setPick] = useState<string | null>(selectedId ?? usable[0]?.id ?? null);
+  const cur = usable.find((c) => c.id === pick) ?? null;
   return (
     <div className="overlay" onClick={onClose}>
       <div className="bag px" role="dialog" aria-label="증거 고르기" onClick={(e) => e.stopPropagation()}>
@@ -23,7 +23,7 @@ export function EvidenceBag({ view, selectedId, onUse, onClose }: { view: GameVi
         </div>
         <div className="bag-scroll">
           {GROUPS.map((g) => {
-            const list = view.evidence.filter((e) => e.kind === g.kind);
+            const list = usable.filter((e) => e.kind === g.kind);
             if (list.length === 0) return null;
             return (
               <section key={g.kind}>

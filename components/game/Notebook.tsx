@@ -2,8 +2,7 @@
 /* eslint-disable @next/next/no-img-element -- 픽셀 아이콘과 초상 */
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Evidence, GameView, Message } from "@/lib/view/types";
-import type { GameActions } from "@/lib/mock/useMockGame";
-import { formatMs } from "@/lib/view/useNow";
+import type { GameActions } from "@/lib/api/useGame";
 import { Modal } from "@/components/ui/Modal";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
 import { PinnableText } from "./PinnableText";
@@ -13,14 +12,12 @@ export const emptyAccuseDraft: AccuseDraft = { who: "", motive: "" };
 
 export const PAGES = ["단서 노트", "대상별 기록", "사건 순서", "최종 추리"] as const;
 export const PAGE_LOG = 1;
-export const PAGE_ACCUSE = 3;
 
-const KIND_LABEL: Record<Evidence["kind"], string> = { scene: "현장 단서", testimony: "증언", test: "키보드 테스트" };
+const KIND_LABEL: Record<Evidence["kind"], string> = { scene: "현장 단서", testimony: "증언" };
 
 /**
  * 종이 수첩. 위쪽 책갈피나 쪽 넘김으로 이동한다.
- * 1쪽 단서 노트(현장 단서·증언·테스트) / 2쪽 대상별 문답 / 3쪽 사건 순서 / 4쪽 최종 추리(범인 + 동기).
- * overtimeLeftMs가 있으면 시간 종료 후 제출 유예 중이라 최종 추리 쪽에 고정된다.
+ * 1쪽 단서 노트(현장 단서·증언) / 2쪽 대상별 문답 / 3쪽 사건 순서 / 4쪽 최종 추리(범인 + 동기 자유 서술).
  */
 export function Notebook(props: {
   view: GameView;
@@ -34,44 +31,34 @@ export function Notebook(props: {
   onPin: (m: Message, sentence: string) => void;
   onPresent: (evidenceId: string) => void;
   onClose: () => void;
-  overtimeLeftMs?: number;
 }) {
-  const { view, page, setPage, onClose, overtimeLeftMs } = props;
-  const locked = overtimeLeftMs !== undefined;
-  const shown = locked ? PAGE_ACCUSE : page;
+  const { view, page, setPage, onClose } = props;
   return (
-    <div className="overlay notebook-overlay" onClick={locked ? undefined : onClose}>
-      <div className="paper book" role="dialog" aria-label={`수첩 · ${PAGES[shown]}`} onClick={(e) => e.stopPropagation()}>
-        {!locked && <button className="paper-close" onClick={onClose} aria-label="수첩 닫기"><PixelIcon name="close" size={16} /></button>}
+    <div className="overlay notebook-overlay" onClick={onClose}>
+      <div className="paper book" role="dialog" aria-label={`수첩 · ${PAGES[page]}`} onClick={(e) => e.stopPropagation()}>
+        <button className="paper-close" onClick={onClose} aria-label="수첩 닫기"><PixelIcon name="close" size={16} /></button>
         <nav className="book-tabs" aria-label="수첩 쪽">
           {PAGES.map((p, i) => (
-            <button key={p} className={`book-tab ${shown === i ? "on" : ""}`} onClick={() => setPage(i)} aria-current={shown === i ? "page" : undefined} disabled={locked && i !== PAGE_ACCUSE}>
+            <button key={p} className={`book-tab ${page === i ? "on" : ""}`} onClick={() => setPage(i)} aria-current={page === i ? "page" : undefined}>
               {p}
             </button>
           ))}
         </nav>
-        {locked && (
-          <p className="overtime" role="alert">
-            시간 종료 · <b>{formatMs(overtimeLeftMs!)}</b> 안에 제출하지 않으면 패배로 처리된다
-          </p>
-        )}
-        <div className={`book-body page-${shown}`}>
-          {shown === 0 && <CluePages {...props} />}
-          {shown === 1 && <LogPages {...props} />}
-          {shown === 2 && <SequencePage {...props} />}
-          {shown === 3 && <AccusePages {...props} />}
+        <div className={`book-body page-${page}`}>
+          {page === 0 && <CluePages {...props} />}
+          {page === 1 && <LogPages {...props} />}
+          {page === 2 && <SequencePage {...props} />}
+          {page === 3 && <AccusePages {...props} />}
         </div>
-        {!locked && (
-          <div className="book-foot">
-            <button className="page-turn" onClick={() => setPage(page - 1)} disabled={page === 0} aria-label="앞 쪽">
-              <PixelIcon name="left" size={16} /> <span>{page > 0 ? PAGES[page - 1] : ""}</span>
-            </button>
-            <span className="page-no">{page + 1} / {PAGES.length}</span>
-            <button className="page-turn" onClick={() => setPage(page + 1)} disabled={page === PAGES.length - 1} aria-label="다음 쪽">
-              <span>{page < PAGES.length - 1 ? PAGES[page + 1] : ""}</span> <PixelIcon name="right" size={16} />
-            </button>
-          </div>
-        )}
+        <div className="book-foot">
+          <button className="page-turn" onClick={() => setPage(page - 1)} disabled={page === 0} aria-label="앞 쪽">
+            <PixelIcon name="left" size={16} /> <span>{page > 0 ? PAGES[page - 1] : ""}</span>
+          </button>
+          <span className="page-no">{page + 1} / {PAGES.length}</span>
+          <button className="page-turn" onClick={() => setPage(page + 1)} disabled={page === PAGES.length - 1} aria-label="다음 쪽">
+            <span>{page < PAGES.length - 1 ? PAGES[page + 1] : ""}</span> <PixelIcon name="right" size={16} />
+          </button>
+        </div>
         {view.me.submitted && <span className="stamp done-stamp" aria-hidden="true">제출 완료</span>}
       </div>
     </div>
@@ -91,7 +78,7 @@ function CluePages({ view, onPresent }: { view: GameView; onPresent: (id: string
         {view.evidence.length === 0 ? (
           <p className="pencil">아직 비어 있다. 장면에서 수상한 곳을 눌러 보고, 사람들에게 물어보자.</p>
         ) : (
-          (["scene", "testimony", "test"] as const).map((k) => {
+          (["scene", "testimony"] as const).map((k) => {
             const list = view.evidence.filter((e) => e.kind === k);
             if (list.length === 0) return null;
             return (
@@ -150,7 +137,7 @@ function LogPages({ view, logSuspect, setLogSuspect, onPin }: { view: GameView; 
                 <button className={`suspect-pick ${x.id === s.id ? "on" : ""}`} onClick={() => setLogSuspect(x.id)} aria-pressed={x.id === s.id}>
                   <img className="face" src={x.portraits.neutral} alt="" />
                   <span className="who">
-                    <b>{x.name}{x.isVictim && " (피해자)"}</b>
+                    <b>{x.name}</b>
                     <span className="pencil">{x.role}</span>
                   </span>
                   <span className="pencil tally">문답 {n}{t > 0 && ` · 증언 ${t}`}</span>
@@ -179,7 +166,6 @@ function LogPages({ view, logSuspect, setLogSuspect, onPin }: { view: GameView; 
                   <p className="q">
                     Q. {m.question || <i>(말없이 증거를 내밀었다)</i>}
                     {m.clueId && <span className="stamp-mini">증거: {evName(m.clueId)}</span>}
-                    {!m.charged && <span className="stamp-mini">차감 없음</span>}
                   </p>
                   <div className="a">
                     <span>A.</span>
@@ -313,72 +299,67 @@ function SequencePage({ view, actions, onPresent }: { view: GameView; actions: G
   );
 }
 
-/** 4쪽: 최종 추리. 범인 1명 + 동기 1개를 한 번 제출한다 (규칙 v2 7장). */
+/** 4쪽: 최종 추리. 범인 1명 + 동기(자유 서술)를 한 번 제출한다. 동기는 서버가 뜻으로 채점한다. */
 function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; actions: GameActions; accuse: AccuseDraft; setAccuse: (d: AccuseDraft) => void }) {
-  const [open, setOpen] = useState<"who" | "motive" | null>(null);
+  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const set = (p: Partial<AccuseDraft>) => setAccuse({ ...accuse, ...p });
   const suspect = view.scenario.suspects.find((s) => s.id === accuse.who);
-  const motive = view.scenario.motives.find((m) => m.id === accuse.motive);
-  const victim = view.scenario.suspects.find((s) => s.isVictim);
+  const motive = accuse.motive.trim();
   const ready = !!suspect && !!motive;
   const done = view.me.submitted;
-
-  const blank = (k: "who" | "motive", label: string | undefined, ph: string) => (
-    <button className={`blank ${label ? "filled" : ""} ${open === k ? "open" : ""}`} onClick={() => setOpen(open === k ? null : k)} disabled={done}>
-      {label ?? ph}
-    </button>
-  );
 
   return (
     <>
       <section className="page">
         <h2 className="hand-title">최종 추리</h2>
-        <p className="pencil small">범인 1명과 동기 1개. 제출은 한 번뿐이고 고칠 수 없다.</p>
+        <p className="pencil small">범인 1명과 동기. 제출은 한 번뿐이고 고칠 수 없다.</p>
         <div className="verdict-sentence">
-          <p>범인은 {blank("who", suspect?.name, "누구")}.</p>
-          <p>{blank("motive", motive?.label, "왜")}</p>
-          <p>{victim?.name}의 프로그램을 없앴다.</p>
+          <p>
+            범인은{" "}
+            <button className={`blank ${suspect ? "filled" : ""} ${open ? "open" : ""}`} onClick={() => setOpen(!open)} disabled={done}>
+              {suspect?.name ?? "누구"}
+            </button>
+            .
+          </p>
+          {open && (
+            <div className="choices faces">
+              {view.scenario.suspects.map((s) => (
+                <button key={s.id} className={accuse.who === s.id ? "on" : ""} onClick={() => (set({ who: s.id }), setOpen(false))}>
+                  <img src={s.portraits.neutral} alt="" />
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <p>왜 {view.scenario.victim}의 프로그램을 없앴을까?</p>
+          <textarea
+            className="motive-input"
+            rows={3}
+            maxLength={500}
+            value={accuse.motive}
+            disabled={done}
+            onChange={(e) => set({ motive: e.target.value })}
+            placeholder="동기를 내 말로 적는다. 표현이 달라도 뜻이 맞으면 정답이다."
+            aria-label="동기"
+          />
         </div>
-        {open === "who" && (
-          <div className="choices faces">
-            {view.scenario.suspects.map((s) => (
-              <button key={s.id} className={accuse.who === s.id ? "on" : ""} onClick={() => (set({ who: s.id }), setOpen(null))}>
-                <img src={s.portraits.neutral} alt="" />
-                {s.name}
-              </button>
-            ))}
-          </div>
-        )}
-        {open === "motive" && (
-          <div className="choices list">
-            {view.scenario.motives.map((m) => (
-              <button key={m.id} className={accuse.motive === m.id ? "on" : ""} onClick={() => (set({ motive: m.id }), setOpen(null))}>
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
       </section>
       <section className="page">
         <h2 className="hand-title">제출</h2>
         {done ? (
           <div className="submitted-note">
-            <p className="ink">추리를 제출했다. 결과를 기다리는 중…</p>
-            <ul className="pencil-list">
-              {view.players.map((p) => (
-                <li key={p.nickname}>{p.nickname}{p.isMe && " (나)"} · {p.submitted ? "제출" : "조사 중"}</li>
-              ))}
-            </ul>
+            <p className="ink">추리를 제출했다.</p>
           </div>
         ) : (
           <>
             <ul className="pencil-list">
-              <li>질문이나 시간이 남아 있어도 제출할 수 있다.</li>
-              <li>범인과 동기를 모두 맞히면 승리, 범인만 맞히면 부분 성공.</li>
+              <li>질문이 남아 있어도 제출할 수 있다.</li>
+              <li>범인과 동기를 모두 맞혀야 해결이다.</li>
             </ul>
-            <button className="stamp-btn" disabled={!ready} onClick={() => setConfirm(true)}>
+            <button className="stamp-btn" disabled={!ready} onClick={() => (setError(null), setConfirm(true))}>
               제출 · 한 번뿐
             </button>
           </>
@@ -387,30 +368,36 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
       {confirm && (
         <Modal
           title="이대로 제출할까?"
-          onClose={() => setConfirm(false)}
+          onClose={() => !busy && setConfirm(false)}
           actions={
             <>
-              <button className="px-btn" onClick={() => setConfirm(false)}>다시 볼래</button>
+              <button className="px-btn" disabled={busy} onClick={() => setConfirm(false)}>다시 볼래</button>
               <button
                 className="px-btn danger"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
-                  await actions.accuse({ suspectId: accuse.who, motiveId: accuse.motive });
-                  setBusy(false);
-                  setConfirm(false);
+                  setError(null);
+                  try {
+                    await actions.accuse({ suspectId: accuse.who, motive });
+                    setConfirm(false);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
               >
-                제출한다
+                {busy ? "채점 중…" : error ? "다시 제출" : "제출한다"}
               </button>
             </>
           }
         >
           <p className="say">
             범인은 <b>{suspect?.name}</b>.<br />
-            동기는 <b>{motive?.label}</b>.
+            동기는 <b>{motive}</b>
           </p>
-          <p className="warn">제출하면 조사와 질문이 끝나고 고칠 수 없다.</p>
+          {error ? <p className="warn" role="alert">{error} 아직 제출되지 않았다.</p> : <p className="warn">제출하면 조사와 질문이 끝나고 고칠 수 없다.</p>}
         </Modal>
       )}
     </>

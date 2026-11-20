@@ -12,6 +12,7 @@ export const emptyDraft: Draft = { question: "", clueId: null };
 export type Dialog =
   | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again" }
   | { kind: "prompt"; key: string; text: string }
+  | { kind: "notice"; key: string; text: string } // 다시 물어야 하는 안내 (차감 없음). 써 둔 질문은 남아 있다
   | { kind: "edit" }
   | { kind: "thinking" }
   | { kind: "answer"; messageId: string; animate: boolean };
@@ -58,6 +59,25 @@ export function DialogBox(props: {
     );
   }
 
+  if (dialog.kind === "notice")
+    return (
+      <section className="dialog px" aria-live="polite">
+        <div className="dialog-main">
+          <span className="px-tag">{suspect?.name ?? "알림"}</span>
+          <p className="say">{dialog.text}</p>
+          <p className="found again">▶ 질문 횟수는 줄지 않았다</p>
+          {suspect && (
+            <div className="dialog-foot">
+              <span />
+              <button className="next-btn" onClick={onAskAgain} aria-label="다시 묻기">
+                다시 묻기 <span className="next-arrow" aria-hidden="true">▼</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+
   if (!suspect) return <section className="dialog px"><div className="dialog-main"><p className="say">물어볼 사람을 장면에서 눌러 줘.</p></div></section>;
 
   const log = view.messages.filter((m) => m.suspectId === suspect.id);
@@ -76,16 +96,11 @@ export function DialogBox(props: {
     const m = view.messages.find((x) => x.id === dialog.messageId);
     if (!m) return null;
     const pinned = (s: string) => view.notes.some((n) => n.messageId === m.id && n.text === s);
-    const added = view.evidence.filter((e) => m.newEvidenceIds.includes(e.id));
     return (
       <section className="dialog px">
         <div className="dialog-main">
           <span className="px-tag">{suspect.name}</span>
           <PinnableText key={m.id} text={m.answer} animate={dialog.animate} isPinned={pinned} onPin={(s) => onPin(m, s)} />
-          {added.map((e) => (
-            <p key={e.id} className="found new">▶ 수첩에 증언으로 적었다 · {e.name}</p>
-          ))}
-          {!m.charged && m.notice && <p className="found again">▶ {m.notice}</p>}
           <div className="dialog-foot">
             <button className="link-btn" onClick={() => onBacklog(suspect.id)}>수첩에서 기록 보기</button>
             <button className="next-btn" onClick={onAskAgain} aria-label="이어서 묻기">
@@ -103,7 +118,7 @@ export function DialogBox(props: {
   const clue = view.evidence.find((c) => c.id === draft.clueId);
   const canSend = !blocked && (!!draft.question.trim() || !!clue);
   const send = () => canSend && onAsk();
-  const tips = (view.scenario.suggestions[suspect.id] ?? []).filter((t) => !log.some((m) => m.question === t));
+  const tips = view.scenario.suggestions.filter((t) => !log.some((m) => m.question === t));
 
   return (
     <section className="dialog px editing">
