@@ -1,0 +1,166 @@
+"use client";
+import { useEffect, useRef } from "react";
+import type { GameView, Message } from "@/lib/view/types";
+import { questionsLeft } from "@/lib/view/rules";
+import { Portrait } from "@/components/pixel/Portrait";
+import { PixelIcon } from "@/components/pixel/PixelIcon";
+import { PinnableText } from "./PinnableText";
+
+export type Draft = { question: string; clueId: string | null };
+export const emptyDraft: Draft = { question: "", clueId: null };
+
+export type Dialog =
+  | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again" }
+  | { kind: "prompt"; key: string; text: string }
+  | { kind: "edit" }
+  | { kind: "thinking" }
+  | { kind: "answer"; messageId: string; animate: boolean };
+
+/** 하단 레트로 대사창. 관찰문, 안내, 질문 입력, 답변을 같은 자리에서 한 번에 하나씩 보여 준다. */
+export function DialogBox(props: {
+  view: GameView;
+  dialog: Dialog;
+  target: string | null;
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  onAsk: () => void;
+  onCancel: () => void;
+  onOpenBag: () => void;
+  onAskAgain: () => void;
+  onBacklog: (suspectId: string) => void;
+  onPin: (m: Message, sentence: string) => void;
+}) {
+  const { view, dialog, target, draft, setDraft, onAsk, onCancel, onOpenBag, onAskAgain, onBacklog, onPin } = props;
+  const suspect = view.scenario.suspects.find((s) => s.id === target) ?? null;
+  const input = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (dialog.kind === "edit") input.current?.focus({ preventScroll: true });
+  }, [dialog.kind, target]);
+
+  if (dialog.kind === "narrate" || dialog.kind === "prompt") {
+    const title = dialog.kind === "narrate" ? dialog.title : "탐정";
+    return (
+      <section className="dialog px" aria-live="polite">
+        {dialog.kind === "narrate" && dialog.image && (
+          <div className={`dialog-face ${dialog.image.item ? "item" : ""}`}>
+            <Portrait src={dialog.image.src} alt={dialog.image.alt} />
+          </div>
+        )}
+        <div className="dialog-main">
+          <span className="px-tag">{title}</span>
+          <p className="say">{dialog.text}</p>
+          {dialog.kind === "narrate" && dialog.found && (
+            <p className={`found ${dialog.found}`}>{dialog.found === "new" ? "▶ 수첩 단서 노트에 적었다" : "▶ 이미 수첩에 있는 단서다"}</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  if (!suspect) return <section className="dialog px"><div className="dialog-main"><p className="say">물어볼 사람을 장면에서 눌러 줘.</p></div></section>;
+
+  const log = view.messages.filter((m) => m.suspectId === suspect.id);
+
+  if (dialog.kind === "thinking")
+    return (
+      <section className="dialog px" aria-busy="true">
+        <div className="dialog-main">
+          <span className="px-tag">{suspect.name}</span>
+          <p className="say thinking" aria-label="대답을 생각하는 중">···</p>
+        </div>
+      </section>
+    );
+
+  if (dialog.kind === "answer") {
+    const m = view.messages.find((x) => x.id === dialog.messageId);
+    if (!m) return null;
+    const pinned = (s: string) => view.notes.some((n) => n.messageId === m.id && n.text === s);
+    const added = view.evidence.filter((e) => m.newEvidenceIds.includes(e.id));
+    return (
+      <section className="dialog px">
+        <div className="dialog-main">
+          <span className="px-tag">{suspect.name}</span>
+          <PinnableText key={m.id} text={m.answer} animate={dialog.animate} isPinned={pinned} onPin={(s) => onPin(m, s)} />
+          {added.map((e) => (
+            <p key={e.id} className="found new">▶ 수첩에 증언으로 적었다 · {e.name}</p>
+          ))}
+          {!m.charged && m.notice && <p className="found again">▶ {m.notice}</p>}
+          <div className="dialog-foot">
+            <button className="link-btn" onClick={() => onBacklog(suspect.id)}>수첩에서 기록 보기</button>
+            <button className="next-btn" onClick={onAskAgain} aria-label="이어서 묻기">
+              이어서 묻기 <span className="next-arrow" aria-hidden="true">▼</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // 질문 입력 (자유 입력 + 추천 질문, 증거만 내밀 수도 있다)
+  const left = questionsLeft(view);
+  const blocked = view.me.submitted || left <= 0;
+  const clue = view.evidence.find((c) => c.id === draft.clueId);
+  const canSend = !blocked && (!!draft.question.trim() || !!clue);
+  const send = () => canSend && onAsk();
+  const tips = (view.scenario.suggestions[suspect.id] ?? []).filter((t) => !log.some((m) => m.question === t));
+
+  return (
+    <section className="dialog px editing">
+      <div className="dialog-main">
+        <div className="edit-head">
+          <span className="px-tag">{suspect.name}</span>
+          <span className="edit-tools">
+            <button className="px-btn small" onClick={onOpenBag} disabled={blocked || view.evidence.length === 0}>
+              <PixelIcon name="clip" size={14} /> 증거 내밀기
+            </button>
+            {log.length > 0 && (
+              <button className="px-btn small" onClick={() => onBacklog(suspect.id)}>기록</button>
+            )}
+          </span>
+        </div>
+        {tips.length > 0 && !blocked && (
+          <div className="tips" aria-label="추천 질문">
+            {tips.slice(0, 3).map((t) => (
+              <button key={t} className="tip" onClick={() => setDraft({ ...draft, question: t })}>{t}</button>
+            ))}
+          </div>
+        )}
+        {clue && (
+          <div className="attach">
+            <span className="px-chip chip-item">
+              <PixelIcon name="clip" size={12} /> {clue.name}
+              <button aria-label="증거 빼기" onClick={() => setDraft({ ...draft, clueId: null })}>×</button>
+            </span>
+            <span className="hint">질문을 비워 두면 증거만 내민다</span>
+          </div>
+        )}
+        <div className="edit-row">
+          <div className="edit-field">
+            <textarea
+              ref={input}
+              rows={2}
+              value={draft.question}
+              maxLength={view.config.questionMaxLength}
+              disabled={blocked}
+              placeholder={left <= 0 ? "질문을 다 썼다. 조사와 수첩 정리, 제출은 할 수 있다." : blocked ? "더 이상 물을 수 없다." : "한 번에 하나씩 물어보자."}
+              onChange={(e) => setDraft({ ...draft, question: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  send();
+                }
+                if (e.key === "Escape") onCancel();
+              }}
+              aria-label={`${suspect.name}에게 할 질문`}
+            />
+            <span className="count">{draft.question.length}/{view.config.questionMaxLength}</span>
+          </div>
+          <button className="px-btn ask-btn on" onClick={send} disabled={!canSend}>
+            {clue && !draft.question.trim() ? "내밀기 · 1회" : "묻기 · 1회"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
