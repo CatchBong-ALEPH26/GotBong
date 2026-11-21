@@ -12,7 +12,10 @@ export default defineConfig({
     },
     env: {
       ASSETS: bindings.assets(),
-      DB: bindings.d1({ name: "gotbong-dev" }),
+      DB: bindings.d1({
+        name: "gotbong-dev",
+        id: "0737af8d-700c-46ec-a791-2221fc583a8e",
+      }),
     },
   }),
 });

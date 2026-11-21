@@ -45,3 +45,6 @@ next-env.d.ts
 /dist/
 .vinext/
 .cloudflare/
+
+# AI 서버 실행 중 생성되는 게임 저장 파일
+ai-server/ai-server/.data/
