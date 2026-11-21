@@ -1,14 +1,42 @@
 import type { NextConfig } from "next";
 
-// AI 서버(ai-server/ai-server)는 쿠키(SameSite=Strict)로 게임을 구분하므로 화면과 API가 같은 주소에서 나가야 한다.
-// 그래서 /api/* 요청을 AI 서버로 넘긴다. 주소를 바꾸려면 AI_SERVER_URL 환경변수를 쓴다.
-const aiServer = process.env.AI_SERVER_URL ?? "http://127.0.0.1:3001";
+// 기존 Node.js AI 서버 주소
+const aiServer =
+  process.env.AI_SERVER_URL ?? "http://127.0.0.1:3001";
+
+// 기존 npm run dev(Next.js) 실행 여부
+const isNextDev =
+  process.env.npm_lifecycle_event === "dev";
+
+// 명시적인 설정을 우선하고,
+// 기본 npm run dev에서는 기존 Node.js 서버를 사용한다.
+const useNodeServer =
+  process.env.GOTBONG_BACKEND === "node" ||
+  (
+    process.env.GOTBONG_BACKEND !== "workers" &&
+    isNextDev
+  );
 
 const nextConfig: NextConfig = {
   devIndicators: false,
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${aiServer}/api/:path*` }];
-  },
+
+  // 기존 Next.js 개발 환경에서만 API 프록시 사용
+  ...(useNodeServer
+    ? {
+        async rewrites() {
+          return {
+            beforeFiles: [
+              {
+                source: "/api/:path*",
+                destination: `${aiServer}/api/:path*`,
+              },
+            ],
+            afterFiles: [],
+            fallback: [],
+          };
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;

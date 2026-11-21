@@ -14,7 +14,7 @@ export default defineConfig({
       ASSETS: bindings.assets(),
       DB: bindings.d1({
         name: "gotbong-dev",
-        id: "0737af8d-700c-46ec-a791-2221fc583a8e",
+        id: "215068c4-cd09-4933-9f86-460b937a13b5",
       }),
     },
   }),

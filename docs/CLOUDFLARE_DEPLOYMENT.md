@@ -1,0 +1,205 @@
+# GotBong — Cloudflare 배포 및 팀 개발 가이드
+
+> 문서 기준일: 2026-11-22
+> 현재 공개 버전: **Fixture 테스트 모드** (OpenAI·Gemini API 키 미등록)
+> 배포 주소: <https://gotbong.aleph26.workers.dev/>
+> 저장소: <https://github.com/CatchBong-ALEPH26/GotBong>
+
+## 1. 프로젝트 실행 환경
+
+GotBong은 **로컬 개발 환경과 Cloudflare 배포 환경을 모두 유지**합니다. 한쪽을 사용하기 위해 다른 쪽을 삭제하거나 변경할 필요가 없습니다.
+
+| 구분 | 로컬 개발 | Cloudflare 배포 |
+| --- | --- | --- |
+| 웹 | Next.js (`http://localhost:3000`) | vinext / Cloudflare Workers |
+| API | 별도 Node.js AI 서버 (`http://127.0.0.1:3001`) | Workers 내부 API 라우트 |
+| 데이터 | SQLite | Cloudflare D1 |
+| 모델 | API 키 없으면 Fixture | 현재 Fixture (실제 모델 호출 미검증) |
+| API | `/api/session`, `/api/question`, `/api/submit`, `/api/reset` | 동일한 경로 |
+
+**중요:** Cloudflare에 배포된다고 해서 GitHub 저장소가 자동 갱신되지는 않습니다. 반대로 GitHub에 코드를 푸시하더라도 현재 수동 배포 방식에서는 Cloudflare에 자동 반영된다고 가정하지 마세요.
+
+## 2. 팀 Cloudflare 리소스
+
+| 항목 | 값 |
+| --- | --- |
+| Cloudflare 계정 프로필 | `gotbong-team` |
+| Cloudflare 계정 ID | `4bbbe34b2ec252adec082f1803c41a78` |
+| Worker 이름 | `gotbong` |
+| Workers 도메인 | `gotbong.aleph26.workers.dev` |
+| D1 데이터베이스 | `gotbong-dev` |
+| D1 데이터베이스 ID | `215068c4-cd09-4933-9f86-460b937a13b5` |
+| Worker의 DB 바인딩 | `env.DB` |
+| 배포에 사용한 CLI | `cf v1.0.0-rc.2` |
+| 마지막 확인 배포 버전 ID | `460cbf8d-93d2-4cd1-b162-23617d11b711` |
+
+팀원이 배포에 참여하려면 **GitHub 저장소 접근 권한**과 **GotBong Team Cloudflare 계정 권한**을 각각 받아야 합니다. 두 권한은 별도입니다.
+
+> **리소스 혼동 주의:** 기존 개인 Cloudflare 계정의 D1도 `gotbong-dev`라는 이름을 사용한 이력이 있습니다. 기존 개인 계정 D1 ID는 `0737af8d-700c-46ec-a791-2221fc583a8e`입니다. 팀 계정 D1과 다른 데이터베이스이며, **이전 리소스를 삭제·초기화·수정하지 않습니다.**
+
+## 3. 로컬 개발 (Windows PowerShell)
+
+### 3.1. 프로젝트 준비
+
+```powershell
+# 이미 저장소를 받은 경우 이 단계는 생략
+# git clone https://github.com/CatchBong-ALEPH26/GotBong.git
+# cd GotBong
+
+npm.cmd ci
+Copy-Item .\ai-server\ai-server\.env.example .\ai-server\ai-server\.env
+```
+
+`.env` 파일에 기본적으로 `PORT=3001`을 유지합니다. 실제 API 키는 없어도 테스트용 Fixture 모드로 실행할 수 있습니다. `.env`는 `.gitignore`의 `.env*` 규칙으로 제외됩니다. **API 키를 채팅·스크린샷·Git에 노출하지 마세요.**
+
+### 3.2. 터미널 1 — Node.js AI 서버
+
+```powershell
+npm.cmd run ai
+```
+
+정상 실행 예시:
+
+```text
+http://127.0.0.1:3001  [fixture] main=fixture fast=fixture
+```
+
+### 3.3. 터미널 2 — Next.js 프론트엔드
+
+```powershell
+Remove-Item Env:\AI_SERVER_URL -ErrorAction SilentlyContinue
+npm.cmd run dev
+```
+
+정상 실행 주소: <http://localhost:3000>. 이 개발 실행 모드에서는 `/api/*` 호출을 로컬 Node.js 서버 `127.0.0.1:3001`로 전달하도록 설정되어 있습니다. **Node.js 서버와 Next.js를 각각 켜 두어야 합니다.**
+
+### 3.4. 터미널 3 — API 응답 확인
+
+```powershell
+curl.exe -i http://localhost:3000/api/session
+```
+
+`HTTP/1.1 200 OK`, `Set-Cookie: game=...`, 응답 JSON의 `mode: "fixture"` 및 `remaining: 20`을 확인합니다. `game` 쿠키는 `HttpOnly`, `SameSite=Strict`로 발급됩니다.
+
+기존 Node.js 회귀 테스트:
+
+```powershell
+npm.cmd --prefix .\ai-server\ai-server test
+```
+
+이전 확인 시 11개 테스트가 통과했습니다. 이후 변경 사항이 있으면 다시 실행하세요.
+
+## 4. Cloudflare 계정 연결 및 배포
+
+### 4.1. 사전 확인
+
+1. Cloudflare 관리자가 팀 계정에 접근 권한을 부여했는지 확인합니다.
+2. 저장소의 `cloudflare.config.ts`에 연결된 D1 ID가 **팀 D1 ID**와 일치하는지 확인합니다.
+3. 배포 전 변경 사항과 비밀정보 포함 여부를 검토하고, 팀 작업 규칙에 따라 리뷰/승인을 받습니다.
+4. 새 데이터베이스를 만들거나 기존 데이터베이스를 삭제하지 않습니다.
+
+처음 팀 프로필을 만드는 PC에서는 프로젝트에서 사용한 CLI의 안내에 따라 인증합니다.
+
+```powershell
+npx.cmd cf auth create gotbong-team
+npx.cmd cf auth activate gotbong-team
+```
+
+이미 프로필이 있다면 활성화만 하면 됩니다. CLI 버전에 따라 인증 절차의 대화형 안내가 달라질 수 있습니다.
+
+### 4.2. 빌드
+
+```powershell
+npm.cmd run build:vinext
+```
+
+`Build complete` 및 `/api/question`, `/api/reset`, `/api/session`, `/api/submit` 네 라우트가 표시되는지 확인합니다.
+
+### 4.3. 배포
+
+```powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "4bbbe34b2ec252adec082f1803c41a78"
+npx.cmd cf deploy
+```
+
+**새 PowerShell 창을 열었다면 계정 ID 환경변수를 다시 지정하세요.** 배포 로그에서 다음 내용을 확인해야 합니다.
+
+```text
+Active profile: gotbong-team
+...
+env.DB (gotbong-dev)          D1 Database
+...
+https://gotbong.aleph26.workers.dev
+...
+Deploy complete
+```
+
+다른 계정이나 다른 D1 리소스가 보이면 배포를 계속하지 말고 팀 관리자에게 확인하세요. `No updated asset files to upload`는 정적 자산 변경이 없을 때 정상적으로 나타날 수 있습니다.
+
+## 5. D1 스키마와 데이터 보존
+
+D1 마이그레이션 파일:
+
+- `migrations/0001_initial.sql`: 기본 게임 데이터 테이블 초기화
+- `migrations/0002_game_revision.sql`: 게임 상태 버전 관련 확장
+
+**현재 팀 D1에는 두 마이그레이션이 이미 적용되어 있습니다.** 기존 팀원이 새로 배포한다고 해서 이 SQL을 다시 실행할 필요가 없습니다. 신규 마이그레이션을 만들 경우 적용 대상 계정, 기존 테이블과 데이터에 미치는 영향, 백업/복구 방법을 먼저 검토해야 합니다.
+
+게임 기록은 D1에 저장되며, 새 게임을 시작해도 이전 게임 기록을 삭제하지 않는 방식입니다. 데이터베이스에 대한 `DROP`, `DELETE`, 초기화 명령은 팀의 별도 합의 없이 실행하지 않습니다.
+
+## 6. 환경변수와 AI 모델
+
+**현재 운영 상태:** 실제 AI API 키 미등록 → Fixture 모드. 이 상태에서도 게임 생성, NPC 대화, 추리 제출, 새 게임을 테스트할 수 있습니다.
+
+- `app/api/session/route.js`: 선택된 AI `mode` 응답
+- `app/api/question/route.js`: `modelFromEnv(env)`로 모델 선택
+- `app/api/submit/route.js`: 정답 용의자의 범행 동기 채점 시 모델 선택
+- `app/api/reset/route.js`: 선택된 AI `mode` 응답
+
+향후 실제 OpenAI·Gemini를 사용할 때에는 API 키를 **Cloudflare Secrets**로 등록하고, 키 권한·요금·모델 선택·Workers 런타임 호환성을 별도로 검증해야 합니다. `.env` 파일이나 `cloudflare.config.ts`, GitHub 코드에 실제 키를 직접 넣지 않습니다. **실제 모델 호출은 아직 검증되지 않았습니다.**
+
+## 7. 배포 확인 체크리스트
+
+2026-11-22 기준, 공개 배포본에서 아래 5개 핵심 기능을 직접 확인했습니다.
+
+- [x] 새 사건 정상 생성
+- [x] NPC 질문 응답 및 질문 횟수 차감
+- [x] 새로고침 후 대화 기록 유지
+- [x] 범인 지목 후 사건 보고서 표시
+- [x] 새 게임으로 초기화
+
+이 체크리스트는 Fixture 모드 기준입니다. 실제 AI 모델, 동시 요청 충돌, 장애 상황/오류 복구는 후속 검증 대상입니다.
+
+## 8. GitHub 반영 절차
+
+변경 사항이 실제 배포에 반영되어도 GitHub에는 별도로 커밋·푸시해야 합니다.
+
+```powershell
+git status --short --branch
+git diff --cached --name-status
+git diff --cached --check
+```
+
+스테이징된 파일에 `.env`, 키 문자열, 로컬 SQLite `.db` 파일, 개인 계정에 연결된 잘못된 설정이 없는지 **내용까지 확인**하세요. 이후 팀 규칙에 따라 커밋하고, 허용된 방식으로 `main`에 반영하거나 Pull Request를 만듭니다. 보호된 브랜치에서는 직접 푸시하지 않습니다. `--force` 푸시는 사용하지 않습니다.
+
+현재 확인된 Workers 전환 파일은 `app/api/` 아래 API 4개, `ai-server/ai-server/src/db-d1.mjs`, `lib/server/game-http.mjs`, `migrations/0002_game_revision.sql`, `cloudflare.config.ts`, `next.config.ts`, `ai-server/ai-server/src/llm.mjs`입니다.
+
+## 9. 문제 해결
+
+| 증상 | 먼저 확인할 내용 |
+| --- | --- |
+| `localhost:3000` 사용 중 | 다른 Next.js 서버가 실행 중인지 확인 |
+| 로컬 화면에서 `/api/session` 호출 실패 | Node.js 서버가 포트 3001에서 실행 중인지 확인 |
+| Cloudflare에서 게임 생성 오류 | `env.DB` 바인딩, 팀 D1 선택 여부, 마이그레이션 적용 상태 점검 |
+| 다른 Cloudflare 계정으로 배포 시도 | 활성 프로필 `gotbong-team`, `CLOUDFLARE_ACCOUNT_ID` 확인 |
+| AI가 정형화된 답변만 반환 | 현재는 Fixture 모드이므로 정상적인 제한 사항 |
+| 빌드의 `SOURCEMAP_BROKEN` 경고 | 기존 빌드에서도 나타난 비치명적 경고이며, 오류와 구별하여 최종 `Build complete` 확인 |
+| `HTTP 502`로 모델 호출 실패 | 실제 AI 모델 설정 및 키/제공자 오류를 점검 (키 값은 공유하지 않음) |
+
+## 10. 공동 작업 시 유의 사항
+
+- 팀 Cloudflare 계정 및 D1만 사용합니다. 개인 계정 리소스는 건드리지 않습니다.
+- 다른 팀원이 사용 중일 수 있는 D1 게임 기록을 임의로 삭제하지 않습니다.
+- AI 키 등록은 추후 관리자와 별도 협의합니다.
+- 배포 전 변경 사항을 리뷰하고, 완료 후 배포 URL과 버전 ID, 테스트 결과를 기록합니다.
+- 이 문서는 확인된 배포 절차를 기준으로 작성했습니다. CLI·Cloudflare 설정이 바뀌면 실제 결과를 기준으로 업데이트합니다.

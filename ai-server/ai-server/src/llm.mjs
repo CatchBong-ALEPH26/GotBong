@@ -119,16 +119,64 @@ export async function fixture(task, { meta }) {
     const intents = Object.entries(meta.intentKeywords)
       .filter(([, words]) => words.some(w => q.includes(w))).map(([id]) => id);
     value = { kind, intents, repeat: meta.recentQuestions.includes(q) };
+
   } else if (task === 'draft') {
-    if (meta.question === '/검증실패') value = { reply: '[검증 실패 유도]', emotion: '기본' };
-    else if (meta.fresh.length) value = { reply: meta.fresh.join(' '), emotion: '당황' };
-    else if ((meta.kind ?? (CHAT_WORDS.some(w => meta.question.includes(w)) ? 'chat' : 'case')) === 'chat') value = { reply: '(잡담 답변)', emotion: '웃음' };
-    else value = { reply: meta.active.join(' '), emotion: '기본' };
+    // 테스트 모드에서 내부 시나리오 주석을 대사에서 제거
+    const publicText = (facts) =>
+      facts
+        .map((text) =>
+          text.replace(/\s*\([^()]*\)/g, '').trim()
+        )
+        .join(' ');
+
+    if (meta.question === '/검증실패') {
+      value = {
+        reply: '[검증 실패 유도]',
+        emotion: '기본'
+      };
+    } else if (meta.fresh.length) {
+      value = {
+        reply: publicText(meta.fresh),
+        emotion: '당황'
+      };
+    } else if (
+      (meta.kind ??
+        (CHAT_WORDS.some(w => meta.question.includes(w))
+          ? 'chat'
+          : 'case')) === 'chat'
+    ) {
+      value = {
+        reply: '(잡담 답변)',
+        emotion: '웃음'
+      };
+    } else {
+      value = {
+        reply: publicText(meta.active),
+        emotion: '기본'
+      };
+    }
+
   } else if (task === 'verify') {
     const pass = !meta.reply.includes('[검증 실패 유도]');
+
     value = {
-      pass, reason: pass ? '통과' : '테스트용 반려',
-      disclosed: pass ? meta.allowed.filter(f => meta.reply.includes(f.say)).map(f => f.id) : []
+      pass,
+      reason: pass ? '통과' : '테스트용 반려',
+      disclosed: pass
+        ? meta.allowed
+            .filter((fact) => {
+              // 화면에 표시되는 문장과 같은 기준으로 비교
+              const visibleFact = fact.say
+                .replace(/\s*\([^()]*\)/g, '')
+                .trim();
+
+              return (
+                visibleFact.length > 0 &&
+                meta.reply.includes(visibleFact)
+              );
+            })
+            .map((fact) => fact.id)
+        : []
     };
   } else if (task === 'motive') {
     value = { match: /놀림|놀렸|놀려|비웃/.test(meta.answer) && /복수|앙갚음|똑같이|되갚/.test(meta.answer) };
