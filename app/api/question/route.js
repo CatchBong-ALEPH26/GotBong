@@ -1,15 +1,15 @@
 import { env } from "cloudflare:workers";
 
-import { openD1 } from "../../../ai-server/ai-server/src/db-d1.mjs";
-import { characters } from "../../../ai-server/ai-server/data/characters.mjs";
-import { clues, clueIds } from "../../../ai-server/ai-server/data/case.mjs";
-import { fill } from "../../../ai-server/ai-server/src/josa.mjs";
-import { roleOf, templateVars } from "../../../ai-server/ai-server/src/game.mjs";
-import { modelFromEnv, LlmError } from "../../../ai-server/ai-server/src/llm.mjs";
+import { openD1 } from "../../../lib/server/db-d1.mjs";
+import { characters } from "../../../lib/game/data/characters.mjs";
+import { clues, clueIds } from "../../../lib/game/data/case.mjs";
+import { fill } from "../../../lib/game/josa.mjs";
+import { roleOf, templateVars } from "../../../lib/game/game.mjs";
+import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
 import {
   runQuestion,
   ClarifyError,
-} from "../../../ai-server/ai-server/src/pipeline.mjs";
+} from "../../../lib/ai/pipeline.mjs";
 
 import {
   GameHttpError,

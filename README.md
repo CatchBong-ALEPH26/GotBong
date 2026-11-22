@@ -1,20 +1,16 @@
 # GotBong · 방과후 탐정단 — AI 추리게임
 
-16비트 픽셀 측면 어드벤처(팀 확정안 **D**) 화면 + AI 용의자 서버(`ai-server/`). 1인용. 범인·역할·피해자는 게임마다 무작위로 바뀐다.
+16비트 픽셀 측면 어드벤처(팀 확정안 **D**) 화면 + AI 용의자 게임 API. 1인용. 범인·역할·피해자는 게임마다 무작위로 바뀐다.
+화면과 API(`app/api/*`)는 vinext로 **하나의 Cloudflare Worker**에서 돌고, 게임 기록은 Cloudflare D1에 저장한다.
 
-## 실행 (터미널 2개, Node 24 이상)
+## 실행 (Node 24 이상, 터미널 1개)
 ```powershell
-# 터미널 1: AI 서버 (npm install 불필요)
-cd ai-server/ai-server
-Copy-Item .env.example .env   # mac: cp .env.example .env  →  OPENAI_API_KEY 입력 (비우면 테스트 모드)
-cd ../..
-npm run ai                    # http://127.0.0.1:3001
-
-# 터미널 2: 화면
 npm install
+npm run db:migrate:local      # 처음 한 번: 로컬 D1(.cloudflare/state)에 테이블 생성. 운영 D1은 건드리지 않음(--local)
 npm run dev                   # http://localhost:3000 → 사건 시작
+npm test                      # 게임 규칙 + API 계약 테스트 (실제 AI·Cloudflare 호출 없음)
 ```
-화면(3000)이 `/api/*`를 AI 서버(3001)로 넘긴다(`next.config.ts`). 다른 주소면 `AI_SERVER_URL` 환경변수로 바꾼다. 키가 없으면 오른쪽 위에 "테스트 모드"가 뜨고 고정 응답이 온다.
+키가 없으면 오른쪽 위에 "테스트 모드"가 뜨고 고정 응답(Fixture)이 온다. 배포·운영 D1·AI 키 정책은 [`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md).
 
 ## 조작
 | 조작 | 하는 일 |
@@ -26,10 +22,11 @@ npm run dev                   # http://localhost:3000 → 사건 시작
 | 보고서 | 해결/미해결, 진상, 그날의 역할. "새 게임"이면 범인이 바뀐다 |
 
 ## 데이터 흐름
-- `lib/api/useGame.ts` — AI 서버 API(`ai-server/ai-server/docs/HANDOFF.md` §3)를 화면 데이터(`lib/view/types.ts`)로 바꾼다. 실패한 요청은 같은 `requestId`로 재시도한다.
+- `lib/api/useGame.ts` — 게임 API(`docs/game/HANDOFF.md` §3)를 화면 데이터(`lib/view/types.ts`)로 바꾼다. 실패한 요청은 같은 `requestId`로 재시도한다.
 - `lib/scene/classroom.ts` — 장면 좌표, 어디를 누르면 어느 단서 카드가 나오는지(화면 담당). 역할 기준 정보는 없다.
 - 장면에서 찾은 단서, 밑줄, 연필 선, 내가 낸 답은 브라우저 `localStorage`에만 둔다(서버 판정과 무관).
-- 연결 안내와 팀 결정 사항: `ai-server/ai-server/docs/INTEGRATION.md` (서버 방식으로 맞춤)
+- 연결 안내와 팀 결정 사항: `docs/game/INTEGRATION.md` (Node 서버 시절 기록)
+- 서버 쪽: `app/api/{session,question,submit,reset}/route.js` → `lib/server/`(D1·HTTP 공통) · `lib/game/`(배정·상태 기계·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인)
 
 ## 파일
 | 영역 | 파일 |

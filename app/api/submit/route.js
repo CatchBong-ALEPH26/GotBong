@@ -1,18 +1,18 @@
 import { env } from "cloudflare:workers";
 
-import { openD1 } from "../../../ai-server/ai-server/src/db-d1.mjs";
-import { characters } from "../../../ai-server/ai-server/data/characters.mjs";
-import { culprit } from "../../../ai-server/ai-server/data/case.mjs";
+import { openD1 } from "../../../lib/server/db-d1.mjs";
+import { characters } from "../../../lib/game/data/characters.mjs";
+import { culprit } from "../../../lib/game/data/case.mjs";
 
 import {
   roleOf,
   motiveText,
   truthText,
   revealCast,
-} from "../../../ai-server/ai-server/src/game.mjs";
+} from "../../../lib/game/game.mjs";
 
-import { modelFromEnv, LlmError } from "../../../ai-server/ai-server/src/llm.mjs";
-import { gradeMotive } from "../../../ai-server/ai-server/src/pipeline.mjs";
+import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
+import { gradeMotive } from "../../../lib/ai/pipeline.mjs";
 
 import {
   GameHttpError,

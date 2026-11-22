@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { josa, fill, givenName } from '../src/josa.mjs';
+import { josa, fill, givenName } from '../lib/game/josa.mjs';
 import {
   newCasting, initialState, advance, factView, publicCase, templateVars, roleOf, shuffle
-} from '../src/game.mjs';
-import { runQuestion } from '../src/pipeline.mjs';
-import { fixture } from '../src/llm.mjs';
-import { characterIds } from '../data/characters.mjs';
-import { roles, roleIds } from '../data/case.mjs';
-import { victims } from '../data/victims.mjs';
-import { addressTable } from '../src/prompts.mjs';
+} from '../lib/game/game.mjs';
+import { runQuestion } from '../lib/ai/pipeline.mjs';
+import { fixture } from '../lib/ai/llm.mjs';
+import { characterIds } from '../lib/game/data/characters.mjs';
+import { roles, roleIds } from '../lib/game/data/case.mjs';
+import { victims } from '../lib/game/data/victims.mjs';
+import { addressTable } from '../lib/ai/prompts.mjs';
 
 test('조사: 받침 유무와 ㄹ 받침', () => {
   assert.equal(josa('곽도현', '이/가'), '곽도현이');

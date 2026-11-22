@@ -1,4 +1,4 @@
-// 화면이 쓰는 데이터 형태. AI 서버(ai-server/ai-server, docs/HANDOFF.md) 응답을 lib/api/useGame.ts가 이 모양으로 바꾼다.
+// 화면이 쓰는 데이터 형태. 게임 API(app/api/*, docs/game/HANDOFF.md) 응답을 lib/api/useGame.ts가 이 모양으로 바꾼다.
 // 정답, 역할 배정(A~D), 해금 조건은 여기에 없다. 서버만 안다.
 
 export type Emotion = "neutral" | "flustered" | "angry" | "smile";

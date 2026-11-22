@@ -1,5 +1,9 @@
 # 유령 키보드 — 아키텍처 설계서 (구현 반영판)
 
+> **2026-11-22 구조 변경 안내:** 이 문서는 Node.js AI 서버(`ai-server/`) 시절의 설계 기록이다. 게임 규칙·API 계약은 그대로지만 파일 위치가 바뀌었다.
+> `src/http.mjs`·`server.mjs` → `app/api/*/route.js` + `lib/server/game-http.mjs` · `src/db.mjs`(SQLite) → `lib/server/db-d1.mjs`(Cloudflare D1) · `src/{game,josa}.mjs`, `data/` → `lib/game/` · `src/{llm,pipeline,prompts}.mjs` → `lib/ai/` · `test/` → 루트 `test/`. 실행 방법은 루트 `README.md`를 따른다.
+
+
 > 갱신: 2026-11-20 · 상태: **구현 완료, 자동 테스트 11개 통과, OpenAI(gpt-4.1 / gpt-4.1-mini) 실제 평가 완료**
 > 기준 문서 우선순위: `최소 MVP 개발 기획서.md` → `초간단 기획서.md` → `유령_키보드_시나리오_v5.md` → `캐릭터시트_통합 (3).md`
 > 화면 통합 담당자용 API·기능 설명은 [`HANDOFF.md`](HANDOFF.md)에 따로 있다.

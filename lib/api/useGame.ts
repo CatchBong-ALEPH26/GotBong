@@ -1,6 +1,6 @@
 "use client";
 
-// AI 서버(ai-server/ai-server)에 붙는 게임 상태. 명세: ai-server/ai-server/docs/HANDOFF.md §3, 연결 안내: docs/INTEGRATION.md
+// 게임 API(app/api/*)에 붙는 게임 상태. 명세: docs/game/HANDOFF.md §3, 연결 안내: docs/game/INTEGRATION.md
 // 서버가 아는 것: 사건 소개, 단서 카드 5장, 용의자, 대화 기록, 남은 질문, 결과.
 // 화면만 아는 것(이 브라우저의 localStorage): 수사 시작 여부, 장면에서 찾은 단서, 밑줄 메모, 연필 선, 내가 낸 답.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

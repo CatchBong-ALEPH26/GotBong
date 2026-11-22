@@ -1,5 +1,9 @@
 # GotBong 화면 ↔ AI 서버 통합 안내
 
+> **2026-11-22 구조 변경 안내:** 이 문서는 Node.js AI 서버(`ai-server/`) 시절의 설계 기록이다. 게임 규칙·API 계약은 그대로지만 파일 위치가 바뀌었다.
+> `src/http.mjs`·`server.mjs` → `app/api/*/route.js` + `lib/server/game-http.mjs` · `src/db.mjs`(SQLite) → `lib/server/db-d1.mjs`(Cloudflare D1) · `src/{game,josa}.mjs`, `data/` → `lib/game/` · `src/{llm,pipeline,prompts}.mjs` → `lib/ai/` · `test/` → 루트 `test/`. 실행 방법은 루트 `README.md`를 따른다.
+
+
 > 작성: 2026-11-20 · 대상: GotBong UI 담당자
 > AI 서버 전체 API와 기능 설명은 [`HANDOFF.md`](HANDOFF.md)에 있다. 이 문서는 **지금 GotBong 코드(`lib/mock/useMockGame.ts`, `lib/view/types.ts`)에 어떻게 붙이는지**만 다룬다.
 

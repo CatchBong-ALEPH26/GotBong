@@ -1,12 +1,12 @@
 
 import { env } from "cloudflare:workers";
-import { openD1 } from "../../../ai-server/ai-server/src/db-d1.mjs";
+import { openD1 } from "../../../lib/server/db-d1.mjs";
 import {
   newCasting,
   initialState,
   publicCase,
-} from "../../../ai-server/ai-server/src/game.mjs";
-import { modelFromEnv } from "../../../ai-server/ai-server/src/llm.mjs";
+} from "../../../lib/game/game.mjs";
+import { modelFromEnv } from "../../../lib/ai/llm.mjs";
 
 const MAX_QUESTIONS = 20;
 

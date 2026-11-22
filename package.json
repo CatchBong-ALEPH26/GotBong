@@ -3,15 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test \"test/*.test.mjs\"",
     "lint": "eslint",
-    "dev:vinext": "vite dev --port 3001",
-    "build:vinext": "vite build",
-    "start:vinext": "vite preview",
-    "deploy:vinext": "vinext-cloudflare deploy",
-    "ai": "npm --prefix ai-server/ai-server start"
+    "db:migrate:local": "cf d1 migrations apply 215068c4-cd09-4933-9f86-460b937a13b5 --local",
+    "deploy": "cf deploy",
+    "eval": "node --env-file-if-exists=.env scripts/eval.mjs"
   },
   "dependencies": {
     "@vinext/cloudflare": "^1.4.0",
