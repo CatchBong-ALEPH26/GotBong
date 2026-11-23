@@ -2,7 +2,7 @@
 //   npm run eval            4가지 배정(각 캐릭터가 각 역할을 한 번씩) × 4명 × 질문 4개
 //   npm run eval -- --quick 1가지 배정만
 //   npm run eval -- --concurrency=4  동시 실행 수 (기본 1. 무료 등급은 분당 15회 한도라 1 권장)
-// 결과: 콘솔 요약 + docs/eval/eval-<시각>.md
+// 결과: 콘솔 요약 + docs/game/eval/eval-<시각>.md
 //
 // 측정 항목
 //   persona  캐릭터 시트 말투 재현도 (1~5, 채점 모델)
@@ -11,13 +11,13 @@
 //   지연·토큰 단계별 p50/p90, 캐시 적중 토큰
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { modelFromEnv } from '../src/llm.mjs';
-import { runQuestion } from '../src/pipeline.mjs';
-import { initialState, factView, templateVars } from '../src/game.mjs';
-import { fill } from '../src/josa.mjs';
-import { characters, characterIds } from '../data/characters.mjs';
-import { roleIds } from '../data/case.mjs';
-import { characterBlock } from '../src/prompts.mjs';
+import { modelFromEnv } from '../lib/ai/llm.mjs';
+import { runQuestion } from '../lib/ai/pipeline.mjs';
+import { initialState, factView, templateVars } from '../lib/game/game.mjs';
+import { fill } from '../lib/game/josa.mjs';
+import { characters, characterIds } from '../lib/game/data/characters.mjs';
+import { roleIds } from '../lib/game/data/case.mjs';
+import { characterBlock } from '../lib/ai/prompts.mjs';
 
 const env = process.env;
 const { mode, model, mainModel, fastModel } = modelFromEnv(env, { maxWaitMs: 70000, maxRetries: 6 });
@@ -191,8 +191,8 @@ const md = [
          r.score.comment.replace(/\|/g, '/')]))
 ].join('\n');
 
-mkdirSync('docs/eval', { recursive: true });
-const file = `docs/eval/eval-${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
+mkdirSync('docs/game/eval', { recursive: true });
+const file = `docs/game/eval/eval-${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
 writeFileSync(file, md);
 console.log(table(['캐릭터', '말투', '잡담 피해망상', '누설', '반려'], byPerson.map(p => [p.name, p.persona, p.paranoid, p.leak, p.rejected])));
 console.log(`

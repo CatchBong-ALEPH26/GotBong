@@ -7,15 +7,14 @@
 
 ## 1. 프로젝트 실행 환경
 
-GotBong은 **로컬 개발 환경과 Cloudflare 배포 환경을 모두 유지**합니다. 한쪽을 사용하기 위해 다른 쪽을 삭제하거나 변경할 필요가 없습니다.
+GotBong은 **Cloudflare 중심 단일 구조**입니다. 로컬 개발도 운영과 같은 Worker 코드를 Vite 개발 서버로 실행합니다. (예전 Node.js AI 서버 + SQLite 경로는 2026-11-22 `refactor/cloudflare-first`에서 제거했습니다.)
 
 | 구분 | 로컬 개발 | Cloudflare 배포 |
 | --- | --- | --- |
-| 웹 | Next.js (`http://localhost:3000`) | vinext / Cloudflare Workers |
-| API | 별도 Node.js AI 서버 (`http://127.0.0.1:3001`) | Workers 내부 API 라우트 |
-| 데이터 | SQLite | Cloudflare D1 |
+| 웹 + API | `npm run dev` → vinext/Vite (`http://localhost:3000`) | vinext / Cloudflare Workers |
+| API 라우트 | `app/api/{session,question,submit,reset}/route.js` | 동일 |
+| 데이터 | 로컬 D1 시뮬레이션 (`.cloudflare/state`, Git 제외) | Cloudflare D1 `gotbong-dev` |
 | 모델 | API 키 없으면 Fixture | 현재 Fixture (실제 모델 호출 미검증) |
-| API | `/api/session`, `/api/question`, `/api/submit`, `/api/reset` | 동일한 경로 |
 
 **중요:** Cloudflare에 배포된다고 해서 GitHub 저장소가 자동 갱신되지는 않습니다. 반대로 GitHub에 코드를 푸시하더라도 현재 수동 배포 방식에서는 Cloudflare에 자동 반영된다고 가정하지 마세요.
 
@@ -39,55 +38,18 @@ GotBong은 **로컬 개발 환경과 Cloudflare 배포 환경을 모두 유지**
 
 ## 3. 로컬 개발 (Windows PowerShell)
 
-### 3.1. 프로젝트 준비
-
 ```powershell
-# 이미 저장소를 받은 경우 이 단계는 생략
-# git clone https://github.com/CatchBong-ALEPH26/GotBong.git
-# cd GotBong
-
+# git clone https://github.com/CatchBong-ALEPH26/GotBong.git ; cd GotBong
 npm.cmd ci
-Copy-Item .\ai-server\ai-server\.env.example .\ai-server\ai-server\.env
+npm.cmd run db:migrate:local   # 처음 한 번. 반드시 --local (스크립트에 포함). 운영 D1에는 쓰지 않는다
+npm.cmd run dev                # http://localhost:3000
 ```
 
-`.env` 파일에 기본적으로 `PORT=3001`을 유지합니다. 실제 API 키는 없어도 테스트용 Fixture 모드로 실행할 수 있습니다. `.env`는 `.gitignore`의 `.env*` 규칙으로 제외됩니다. **API 키를 채팅·스크린샷·Git에 노출하지 마세요.**
-
-### 3.2. 터미널 1 — Node.js AI 서버
-
-```powershell
-npm.cmd run ai
-```
-
-정상 실행 예시:
-
-```text
-http://127.0.0.1:3001  [fixture] main=fixture fast=fixture
-```
-
-### 3.3. 터미널 2 — Next.js 프론트엔드
-
-```powershell
-Remove-Item Env:\AI_SERVER_URL -ErrorAction SilentlyContinue
-npm.cmd run dev
-```
-
-정상 실행 주소: <http://localhost:3000>. 이 개발 실행 모드에서는 `/api/*` 호출을 로컬 Node.js 서버 `127.0.0.1:3001`로 전달하도록 설정되어 있습니다. **Node.js 서버와 Next.js를 각각 켜 두어야 합니다.**
-
-### 3.4. 터미널 3 — API 응답 확인
-
-```powershell
-curl.exe -i http://localhost:3000/api/session
-```
-
-`HTTP/1.1 200 OK`, `Set-Cookie: game=...`, 응답 JSON의 `mode: "fixture"` 및 `remaining: 20`을 확인합니다. `game` 쿠키는 `HttpOnly`, `SameSite=Strict`로 발급됩니다.
-
-기존 Node.js 회귀 테스트:
-
-```powershell
-npm.cmd --prefix .\ai-server\ai-server test
-```
-
-이전 확인 시 11개 테스트가 통과했습니다. 이후 변경 사항이 있으면 다시 실행하세요.
+- 로컬 D1 데이터는 `.cloudflare/state/`에 저장됩니다(Git 제외). 초기화가 필요하면 이 폴더만 지우고 `db:migrate:local`을 다시 실행합니다. 운영 D1 초기화와 혼동하지 마세요.
+- API 확인: `curl.exe -i http://localhost:3000/api/session` → `200`, `Set-Cookie: game=...`(HttpOnly, SameSite=Strict), `mode: "fixture"`, `remaining: 20`.
+- 테스트: `npm.cmd test` → `test/game.test.mjs`(게임 규칙) + `test/api.test.mjs`(Workers API 계약: 쿠키·멱등성·revision·비공개 정보, `node:sqlite`로 만든 D1 대역 사용). 실제 Cloudflare·AI 호출은 없습니다.
+- 실제 모델 품질 평가: `.env.example`을 `.env`로 복사해 키를 넣고 `npm.cmd run eval -- --quick` (**유료 호출**, 팀 합의 후).
+- 로컬 Worker에서 실제 AI 키를 쓰는 방법은 아직 검증하지 않았습니다. 키는 채팅·스크린샷·Git에 노출하지 마세요.
 
 ## 4. Cloudflare 계정 연결 및 배포
 
@@ -110,7 +72,7 @@ npx.cmd cf auth activate gotbong-team
 ### 4.2. 빌드
 
 ```powershell
-npm.cmd run build:vinext
+npm.cmd run build
 ```
 
 `Build complete` 및 `/api/question`, `/api/reset`, `/api/session`, `/api/submit` 네 라우트가 표시되는지 확인합니다.
@@ -119,7 +81,7 @@ npm.cmd run build:vinext
 
 ```powershell
 $env:CLOUDFLARE_ACCOUNT_ID = "4bbbe34b2ec252adec082f1803c41a78"
-npx.cmd cf deploy
+npx.cmd cf deploy               # 또는 npm.cmd run deploy (같은 명령)
 ```
 
 **새 PowerShell 창을 열었다면 계정 ID 환경변수를 다시 지정하세요.** 배포 로그에서 다음 내용을 확인해야 합니다.
@@ -180,16 +142,16 @@ git diff --cached --name-status
 git diff --cached --check
 ```
 
-스테이징된 파일에 `.env`, 키 문자열, 로컬 SQLite `.db` 파일, 개인 계정에 연결된 잘못된 설정이 없는지 **내용까지 확인**하세요. 이후 팀 규칙에 따라 커밋하고, 허용된 방식으로 `main`에 반영하거나 Pull Request를 만듭니다. 보호된 브랜치에서는 직접 푸시하지 않습니다. `--force` 푸시는 사용하지 않습니다.
+스테이징된 파일에 `.env`, 키 문자열, 로컬 D1 상태(`.cloudflare/`), 개인 계정에 연결된 잘못된 설정이 없는지 **내용까지 확인**하세요. 이후 팀 규칙에 따라 커밋하고, 허용된 방식으로 `main`에 반영하거나 Pull Request를 만듭니다. 보호된 브랜치에서는 직접 푸시하지 않습니다. `--force` 푸시는 사용하지 않습니다.
 
-현재 확인된 Workers 전환 파일은 `app/api/` 아래 API 4개, `ai-server/ai-server/src/db-d1.mjs`, `lib/server/game-http.mjs`, `migrations/0002_game_revision.sql`, `cloudflare.config.ts`, `next.config.ts`, `ai-server/ai-server/src/llm.mjs`입니다.
+서버 코드 위치: `app/api/` 아래 API 4개, `lib/server/`(`db-d1.mjs`, `game-http.mjs`), `lib/game/`(게임 규칙·`data/` 시나리오), `lib/ai/`(모델·질문 파이프라인), `migrations/`, `cloudflare.config.ts`.
 
 ## 9. 문제 해결
 
 | 증상 | 먼저 확인할 내용 |
 | --- | --- |
-| `localhost:3000` 사용 중 | 다른 Next.js 서버가 실행 중인지 확인 |
-| 로컬 화면에서 `/api/session` 호출 실패 | Node.js 서버가 포트 3001에서 실행 중인지 확인 |
+| `localhost:3000` 사용 중 | 다른 개발 서버가 실행 중인지 확인 |
+| 로컬에서 `/api/session`이 500 (`no such table`) | `npm.cmd run db:migrate:local`을 먼저 실행 |
 | Cloudflare에서 게임 생성 오류 | `env.DB` 바인딩, 팀 D1 선택 여부, 마이그레이션 적용 상태 점검 |
 | 다른 Cloudflare 계정으로 배포 시도 | 활성 프로필 `gotbong-team`, `CLOUDFLARE_ACCOUNT_ID` 확인 |
 | AI가 정형화된 답변만 반환 | 현재는 Fixture 모드이므로 정상적인 제한 사항 |

@@ -1,5 +1,9 @@
 # 유령 키보드 — UI 통합 인계 보고서
 
+> **2026-11-22 구조 변경 안내:** 이 문서는 Node.js AI 서버(`ai-server/`) 시절의 설계 기록이다. 게임 규칙·API 계약은 그대로지만 파일 위치가 바뀌었다.
+> `src/http.mjs`·`server.mjs` → `app/api/*/route.js` + `lib/server/game-http.mjs` · `src/db.mjs`(SQLite) → `lib/server/db-d1.mjs`(Cloudflare D1) · `src/{game,josa}.mjs`, `data/` → `lib/game/` · `src/{llm,pipeline,prompts}.mjs` → `lib/ai/` · `test/` → 루트 `test/`. 실행 방법은 루트 `README.md`를 따른다.
+
+
 > 작성: 2026-11-20 · 대상: 화면(UI/UX) 담당자
 > 이 문서만 읽고 새 화면을 백엔드에 붙일 수 있도록 썼다. 내부 설계 근거는 [`ARCHITECTURE.md`](ARCHITECTURE.md)에 있다.
 > 현재 `public/` 폴더의 화면은 **동작 확인용 참고 구현**이다. 그대로 써도 되고 전부 바꿔도 된다. 백엔드는 `public/index.html`, `public/style.css`, `public/app.js` 세 파일만 서빙하므로, 파일을 늘리거나 빌드 도구를 쓰려면 §8을 본다.
