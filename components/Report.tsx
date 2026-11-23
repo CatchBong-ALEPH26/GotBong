@@ -1,9 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 픽셀 아이콘 */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { GameView } from "@/lib/view/types";
 import { SceneBackdrop } from "@/components/pixel/SceneBackdrop";
-import { play } from "@/lib/audio/sound";
 
 const VERDICT = {
   win: { label: "해결", sub: "범인과 동기를 모두 맞혔다" },
@@ -24,17 +23,15 @@ function rank(used: number, max: number) {
  */
 export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const r = view.report;
-  const verdict = r?.verdict;
-  useEffect(() => {
-    if (verdict) play(verdict === "win" ? "win" : "lose");
-  }, [verdict]);
   if (!r) return null;
   const v = VERDICT[r.verdict];
   const evName = (id: string | null) => view.evidence.find((e) => e.id === id)?.name;
   const nameOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)?.name ?? "";
   const culprit = r.cast.find((c) => c.culprit)?.name ?? "";
-  const culpritOk = !!r.mine.culprit && r.mine.culprit === culprit;
+  // 해결이면 서버가 범인을 맞혔다고 판정한 것이다 (이 브라우저에 내 답이 없어도).
+  const culpritOk = r.verdict === "win" || (!!r.mine.culprit && r.mine.culprit === culprit);
   // 동기: 해결이면 맞음. 미해결인데 범인을 맞혔다면 동기가 틀린 것. 범인이 틀리면 동기는 따로 알 수 없다.
   const motiveMark = r.verdict === "win" ? "ok" : culpritOk ? "no" : null;
   const found = view.clues.filter((c) => c.found).length;
@@ -61,7 +58,7 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
           <div>
             <p className="pencil small">내가 지목한 범인</p>
             <p className="ink">
-              <b>{r.mine.culprit || "—"}</b>
+              <b>{r.mine.culprit || (r.verdict === "win" ? culprit : "—")}</b>
               <span className={`mark ${culpritOk ? "ok" : "no"}`}>{culpritOk ? "○ 맞음" : "× 틀림"}</span>
             </p>
             {!culpritOk && culprit && <p className="pencil small">진짜 범인 · {culprit}</p>}
@@ -155,11 +152,19 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              await onNewGame().finally(() => setBusy(false));
+              setResetError(null);
+              try {
+                await onNewGame();
+              } catch (e) {
+                setResetError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             {busy ? "새 사건 준비 중…" : "새 게임 (범인이 바뀐다)"}
           </button>
+          {resetError && <p className="warn" role="alert">{resetError} 새 게임을 시작하지 못했다.</p>}
         </div>
       </article>
     </main>

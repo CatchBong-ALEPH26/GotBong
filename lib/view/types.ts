@@ -102,7 +102,7 @@ export type ReportView = {
   mine: { culprit: string; motive: string };
   truth: string; // 여러 줄
   cast: { name: string; title: string; culprit: boolean }[]; // 사람마다 실제로 맡았던 역할
-  usage: { questionsUsed: number; evidenceFound: number; evidenceShown: string[]; pinned: number };
+  usage: { questionsUsed: number; evidenceShown: string[]; pinned: number };
 };
 
 /** 서버 단서 카드의 찾기 현황. 제목은 게임이 끝난 뒤(보고서)에만 화면에 보여 준다. */

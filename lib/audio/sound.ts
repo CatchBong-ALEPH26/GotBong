@@ -101,6 +101,12 @@ const BGM_BARS = [
   [-17, -10, -5, -1],
 ];
 function bgmTick(step: number) {
+  // 브라우저가 아직 소리를 막아 둔 상태(클릭 전)면 음표를 예약하지 않는다.
+  // 멈춘 시계에 쌓인 음표가 첫 클릭 때 한꺼번에 터지는 것을 막는다.
+  if (!ctx || ctx.state !== "running") {
+    if (ctx?.state === "suspended") void ctx.resume();
+    return;
+  }
   const bar = BGM_BARS[Math.floor(step / 8) % BGM_BARS.length];
   const i = step % 8;
   const note = bar[[0, 1, 2, 3, 2, 1, 2, 3][i]];

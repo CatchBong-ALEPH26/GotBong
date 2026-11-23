@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameView, Hotspot, Message } from "@/lib/view/types";
-import type { GameActions } from "@/lib/api/useGame";
+import { ApiError, type GameActions } from "@/lib/api/useGame";
 import { Stage, type Hit } from "./Stage";
 import { Hud } from "./Hud";
 import { DialogBox, emptyDraft, type Dialog, type Draft } from "./DialogBox";
@@ -51,6 +51,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   const [autoHinted, setAutoHinted] = useState<string | null>(null);
   const [tick, setTick] = useState(() => Date.now());
   const done = view.me.submitted;
+  // 답변을 기다리는 동안에는 장면·힌트·이동·증거를 막는다 (다른 사람 이름으로 답이 뜨거나 요청이 겹치지 않게).
+  const busy = dialog.kind === "thinking";
   const suspectOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)!;
   const closeup = closeupId ? view.scenario.closeups[closeupId] : null;
 
@@ -74,6 +76,9 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       play("found");
       setLastProgress(Date.now());
       setEmptyClicks(0);
+    } else if (r.evidence) {
+      // 이미 찾은 단서를 다시 읽는 것은 헛짚은 게 아니다.
+      play("open");
     } else {
       play("tick");
       setEmptyClicks((n) => n + 1);
@@ -97,7 +102,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }
 
   function onHit(h: Hit) {
-    if (done) return;
+    if (done || busy) return;
     if (h.type === "suspect") {
       setTarget(h.id);
       // 지금 고른 사람의 말은 그 사람에게 내밀 수 없다 (서버 규칙).
@@ -111,7 +116,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }
 
   function moveTo(id: string) {
-    if (id === sceneId) return;
+    if (id === sceneId || busy) return;
     const next = view.scenario.scenes.find((s) => s.id === id)!;
     setSceneId(id);
     setCloseupId(null);
@@ -127,6 +132,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
 
   /** 증거를 고르면 질문에 붙인다. 대상이 없거나 그 사람 본인의 말이면 사람을 고르게 한다. */
   function present(id: string) {
+    if (busy) return;
     const own = view.evidence.find((e) => e.id === id)?.suspectId;
     setDraft((d) => ({ ...d, clueId: id }));
     setOverlay(null);
@@ -151,11 +157,16 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
         return;
       }
       setDraft(emptyDraft);
+      // 심문도 진행이다. 열심히 묻는 중에 '막혔나?' 힌트가 끼어들지 않게 한다.
+      setLastProgress(Date.now());
+      setEmptyClicks(0);
       if (r.message.emotion === "flustered") play("fluster");
       setDialog({ kind: "answer", messageId: r.message.id, animate: true });
     } catch (e) {
       play("notice");
-      setDialog({ kind: "notice", key: `err-${Date.now()}`, text: `${(e as Error).message} 질문은 차감되지 않았다. 같은 내용으로 다시 물을 수 있다.` });
+      // 연결이 끊긴 경우(status 0)에는 서버가 처리했을 수도 있다. 같은 내용으로 다시 물으면 중복 차감 없이 이어진다.
+      const lost = e instanceof ApiError && e.status === 0;
+      setDialog({ kind: "notice", key: `err-${Date.now()}`, text: `${(e as Error).message} ${lost ? "같은 내용으로 다시 물으면 두 번 차감되지 않는다." : "질문은 차감되지 않았다. 같은 내용으로 다시 물을 수 있다."}` });
     }
   }
 
@@ -169,15 +180,21 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     setHintsShown((h) => ({ ...h, [missing]: (h[missing] ?? 0) + 1 }));
     setDialog({ kind: "narrate", key: `hint-${Date.now()}`, title: "생각", text: fillVictim(HINTS[missing][level], view.scenario.victim), hint: true });
   }
-  const idle = !done && !overlay && !closeup && !cutscene && (dialog.kind === "narrate" || dialog.kind === "prompt");
+  // 'prompt'(누구에게 증거를 내밀지 고르는 중)는 쉬는 상태가 아니다. 자동 힌트가 안내를 덮어쓰지 않게 한다.
+  const idle = !done && !overlay && !closeup && !cutscene && dialog.kind === "narrate";
   const stuckMs = tick - lastProgress;
   const hintReady = !!missing && (stuckMs > HINT_GLOW_MS || emptyClicks >= EMPTY_CLICKS_GLOW);
 
-  // 5초마다 막힘 여부를 다시 본다. 오래 막혀 있으면 단서마다 한 번씩 흐릿한 힌트를 저절로 말한다.
+  // 다음 기준 시각(반짝임·자동 힌트)에 한 번만 깨어난다. 제출 뒤나 단서를 다 찾으면 멈춘다.
+  // 오래 막혀 있으면 단서마다 한 번씩 흐릿한 힌트를 저절로 말한다.
   useEffect(() => {
-    const t = setInterval(() => setTick(Date.now()), 5000);
-    return () => clearInterval(t);
-  }, []);
+    if (done || !missing) return;
+    const now = Date.now();
+    const next = [lastProgress + HINT_GLOW_MS, lastProgress + HINT_AUTO_MS].filter((t) => t > now);
+    if (!next.length) return;
+    const t = setTimeout(() => setTick(Date.now()), Math.min(...next) - now + 50);
+    return () => clearTimeout(t);
+  }, [done, missing, lastProgress, tick]);
   const autoHintDue = view.me.started && idle && !!missing && autoHinted !== missing && stuckMs > HINT_AUTO_MS && !(hintsShown[missing] > 0);
   useEffect(() => {
     if (!autoHintDue) return;
@@ -188,9 +205,12 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }, [autoHintDue]);
 
   // 표정이 바뀔 때 깜빡이지 않게 상반신·초상 그림을 미리 받아 둔다.
+  // 장면을 다시 그릴 때마다 suspects 배열이 새로 만들어지므로, 사람 구성이 바뀔 때만 다시 받는다.
+  const castKey = view.scenario.suspects.map((s) => s.id).join(",");
   useEffect(() => {
     for (const s of view.scenario.suspects) for (const src of [...Object.values(s.sprites), ...Object.values(s.portraits)]) new Image().src = src;
-  }, [view.scenario.suspects]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [castKey]);
 
   // 배경음은 수사 중에만 (소리를 켰을 때).
   useEffect(() => {
@@ -207,8 +227,10 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
+      // Esc는 열린 수첩·증거 가방부터 닫는다 (확인창은 자기 Esc를 먼저 처리한다).
+      if (e.key === "Escape" && overlay) return setOverlay(null);
       if (t.closest("input, textarea, select, [role=dialog]:not(.closeup)") || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.toLowerCase() === "n") {
+      if (e.key.toLowerCase() === "n" && !busy) {
         play("open");
         setOverlay({ kind: "notebook" });
       }
@@ -244,17 +266,19 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
           sceneId={sceneId}
           onMove={moveTo}
           onNotebook={() => {
+            if (busy) return;
             play("open");
             setOverlay({ kind: "notebook" });
           }}
           onHint={() => {
+            if (busy) return;
             setCloseupId(null);
             setTarget(null);
             hint();
           }}
           hintReady={hintReady && idle}
         />
-        <Stage view={view} scene={scene} target={target} disabled={done} onHit={onHit} />
+        <Stage view={view} scene={scene} target={target} disabled={done || busy} onHit={onHit} />
         {closeup && <Closeup view={view} data={closeup} onSpot={onSpot} onOpen={setCloseupId} onClose={() => setCloseupId(null)} />}
         {talking && talker && (
           <figure key={talker.id} className={`talk-figure ${dialog.kind === "thinking" ? "is-thinking" : ""}`} aria-label={`${talker.name} · 대화 중`}>

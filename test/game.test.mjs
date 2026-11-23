@@ -144,3 +144,47 @@ test('셔플은 균등 (간단 확인)', () => {
   assert.equal(Object.keys(counts).length, 24);
   assert.equal(roleOf({ A: 'kim', B: 'won' }, 'won'), 'B');
 });
+
+test('조사: 숫자·영문·끝 괄호', async () => {
+  const { josa } = await import('../lib/game/josa.mjs');
+  assert.equal(josa('3', '이/가'), '3이');
+  assert.equal(josa('2', '이/가'), '2가');
+  assert.equal(josa('1', '으로/로'), '1로');
+  assert.equal(josa('원)', '은/는'), '원)은');
+  assert.equal(josa('Kim', '이/가'), 'Kim이(가)');
+});
+
+test('질문 처리: 빈 답이나 너무 긴 답은 서버 오류가 아니라 반려 (질문 차감 없음)', async () => {
+  const { runQuestion } = await import('../lib/ai/pipeline.mjs');
+  const { initialState } = await import('../lib/game/game.mjs');
+  const game = { cast: { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' }, victim: '곽도현', state: initialState() };
+  for (const reply of ['', 'x'.repeat(1300)]) {
+    const model = async task => ({
+      value: task === 'classify' ? { kind: 'case', intents: [], repeat: false }
+        : task === 'draft' ? { reply, emotion: '기본' }
+        : { pass: true, reason: '', disclosed: [] },
+      metric: {}
+    });
+    const r = await runQuestion({ model, game, roleId: 'A', question: '어디 계셨어요?', attach: null, history: [] });
+    assert.equal(r.pass, false);
+  }
+});
+
+test('질문 처리: 영문이 섞인 잡담 답은 검증을 건너뛰지 않는다', async () => {
+  const { runQuestion } = await import('../lib/ai/pipeline.mjs');
+  const { initialState } = await import('../lib/game/game.mjs');
+  const game = { cast: { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' }, victim: '곽도현', state: initialState() };
+  let verified = 0;
+  const model = async task => {
+    if (task === 'verify') verified++;
+    return {
+      value: task === 'classify' ? { kind: 'chat', intents: [], repeat: false }
+        : task === 'draft' ? { reply: 'I plugged my receiver in.', emotion: '기본' }
+        : { pass: false, reason: '누설', disclosed: [] },
+      metric: {}
+    };
+  };
+  const r = await runQuestion({ model, game, roleId: 'D', question: '점심 뭐 드셨어요?', attach: null, history: [] });
+  assert.ok(verified > 0);
+  assert.equal(r.pass, false);
+});

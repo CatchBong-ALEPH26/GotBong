@@ -20,6 +20,11 @@ const KIND_LABEL: Record<Evidence["kind"], string> = { scene: "현장 단서", t
  * 종이 수첩. 위쪽 책갈피나 쪽 넘김으로 이동한다.
  * 1쪽 단서 노트(현장 단서·증언) / 2쪽 대상별 문답 / 3쪽 사건 순서 / 4쪽 최종 추리(범인 + 동기 자유 서술).
  */
+/** 열릴 때 수첩으로 포커스를 옮긴다. 모듈 함수라 다시 그려도 다시 불리지 않는다. */
+const focusOnOpen = (el: HTMLElement | null) => {
+  el?.focus({ preventScroll: true });
+};
+
 export function Notebook(props: {
   view: GameView;
   actions: GameActions;
@@ -36,7 +41,7 @@ export function Notebook(props: {
   const { view, page, setPage, onClose } = props;
   return (
     <div className="overlay notebook-overlay" onClick={onClose}>
-      <div className="paper book" role="dialog" aria-label={`수첩 · ${PAGES[page]}`} onClick={(e) => e.stopPropagation()}>
+      <div className="paper book" role="dialog" aria-modal="true" aria-label={`수첩 · ${PAGES[page]}`} tabIndex={-1} ref={focusOnOpen} onClick={(e) => e.stopPropagation()}>
         <button className="paper-close" onClick={onClose} aria-label="수첩 닫기"><PixelIcon name="close" size={16} /></button>
         <nav className="book-tabs" aria-label="수첩 쪽">
           {PAGES.map((p, i) => (
@@ -414,8 +419,10 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
                   setBusy(true);
                   setError(null);
                   try {
-                    await actions.accuse({ suspectId: accuse.who, motive });
+                    const verdict = await actions.accuse({ suspectId: accuse.who, motive });
                     play("stamp");
+                    // 결과 음악은 제출 직후 한 번만, 도장 소리 뒤에 (결과 화면을 다시 열 때는 울리지 않는다)
+                    setTimeout(() => play(verdict), 450);
                     setConfirm(false);
                   } catch (e) {
                     setError((e as Error).message);

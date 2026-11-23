@@ -190,3 +190,51 @@ test('commit: revision이 어긋나면 요청 기록·상태가 모두 저장되
   assert.equal(await store.getRequest(id, 'stale-0001'), null);
   assert.equal((await store.getGame(id)).remaining, 20);
 });
+
+test('동시 질문: 늦게 저장하는 쪽은 500이 아니라 409, 같은 요청 ID는 저장된 응답을 재생', async t => {
+  const { db, request, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  const results = await Promise.all([
+    request('question', { npc: 'kim', question: '쉬는 시간에 어디 계셨어요?', requestId: 'race-0001' }),
+    request('question', { npc: 'won', question: '쉬는 시간에 어디 계셨어요?', requestId: 'race-0002' })
+  ]);
+  const codes = results.map(r => r.code);
+  assert.ok(codes.every(c => c === 200 || c === 409), '동시 요청은 200 또는 409: ' + codes);
+  assert.ok(codes.includes(200));
+
+  const { openD1 } = await import('../lib/server/db-d1.mjs');
+  const { commitOrReplay, GameHttpError } = await import('../lib/server/game-http.mjs');
+  const store = openD1(db);
+  const game = await store.getGame(db.sql.prepare('SELECT id FROM games').get().id);
+  const failing = () => Promise.reject(new Error('constraint'));
+
+  // 다른 요청이 먼저 반영됨 → 409
+  await assert.rejects(
+    commitOrReplay(store, { ...game, revision: game.revision - 1 }, { requestId: 'race-9999', fingerprint: 'x' }, failing),
+    e => e instanceof GameHttpError && e.status === 409
+  );
+  // 같은 요청이 먼저 저장됨 → 저장된 응답 재생 (남은 질문은 최신 값)
+  const saved = await store.getRequest(game.id, codes[0] === 200 ? 'race-0001' : 'race-0002');
+  const replay = await commitOrReplay(store, game, { requestId: codes[0] === 200 ? 'race-0001' : 'race-0002', fingerprint: saved.fingerprint }, failing);
+  assert.equal(replay.status, 'accepted');
+  assert.equal(replay.remaining, game.remaining);
+});
+
+test('보호: 새 게임은 JSON 요청만, 잘못된 첨부는 재생 전에 400', async t => {
+  const { db, request, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  const form = await routes.reset(new Request('https://gotbong.test/api/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: ''
+  }));
+  assert.equal(form.status, 415, '다른 사이트의 폼 전송으로 게임을 바꿀 수 없다');
+  assert.equal(form.headers.get('set-cookie'), null);
+  assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM games').get().n, 1);
+
+  const body = { npc: 'kim', question: '쉬는 시간에 어디 계셨어요?', requestId: 'attach-0001' };
+  assert.equal((await request('question', body)).code, 200);
+  assert.equal((await request('question', { ...body, attach: 'x' })).code, 400);
+});

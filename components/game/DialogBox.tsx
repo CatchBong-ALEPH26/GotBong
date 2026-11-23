@@ -154,7 +154,8 @@ export function DialogBox(props: {
               placeholder={left <= 0 ? "질문을 다 썼다. 조사와 수첩 정리, 제출은 할 수 있다." : blocked ? "더 이상 물을 수 없다." : "한 번에 하나씩 물어보자."}
               onChange={(e) => setDraft({ ...draft, question: e.target.value })}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                // 한글 조합 중 Enter는 보내지 않는다 (Safari는 isComposing 대신 keyCode 229로 알린다)
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault();
                   send();
                 }
