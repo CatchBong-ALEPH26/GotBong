@@ -8,6 +8,7 @@ import {
   publicCase,
 } from "../../../lib/game/game.mjs";
 import { modelFromEnv } from "../../../lib/ai/llm.mjs";
+import { GameHttpError, readGameJson } from "../../../lib/server/game-http.mjs";
 
 const MAX_QUESTIONS = 20;
 
@@ -15,6 +16,10 @@ const MAX_QUESTIONS = 20;
 // 이전 게임 기록은 D1에 그대로 보관한다.
 export async function POST(request) {
   try {
+    // 다른 사이트의 폼 전송으로 쿠키가 바뀌지 않도록 JSON 요청만 받는다.
+    // (교차 사이트 폼은 application/json을 보낼 수 없다.)
+    await readGameJson(request);
+
     const db = openD1(env.DB);
     const { mode } = modelFromEnv(env);
 
@@ -65,6 +70,13 @@ export async function POST(request) {
     return response;
 
   } catch (error) {
+    if (error instanceof GameHttpError) {
+      return Response.json(
+        { error: error.message },
+        { status: error.status, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     console.error("새 게임 시작 API 오류:", error);
 
     return Response.json(

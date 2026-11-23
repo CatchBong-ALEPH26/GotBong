@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { play } from "@/lib/audio/sound";
 
 export const splitSentences = (text: string) => text.split(/(?<=[.!?…])\s+/).filter(Boolean);
 
@@ -17,7 +18,11 @@ export function PinnableText(props: { text: string; animate: boolean; isPinned: 
       return;
     }
     setN(0);
-    const t = setInterval(() => setN((x) => (x >= text.length ? (clearInterval(t), x) : x + 1)), 32);
+    let i = 0;
+    const t = setInterval(() => {
+      if (++i % 3 === 0 && i <= text.length) play("blip");
+      setN((x) => (x >= text.length ? (clearInterval(t), x) : x + 1));
+    }, 32);
     return () => clearInterval(t);
   }, [animate, text]);
 

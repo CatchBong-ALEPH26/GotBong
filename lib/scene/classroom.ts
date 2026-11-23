@@ -128,5 +128,19 @@ export const RULES = [
 
 export const SUGGESTIONS = ["쉬는 시간에 어디 있었어요?", "{victim} 자리 근처에 간 사람을 봤어요?", "오늘 오전에 {victim} 씨랑 무슨 일이 있었어요?"];
 
+/**
+ * 막혔을 때의 혼잣말 힌트 (화면 담당). 아직 못 찾은 단서 카드마다 "어디를 볼지"만 알려 준다. 내용은 말하지 않는다.
+ * [흐릿한 힌트, 구체적인 힌트]. HINT_ORDER 순서로 아직 못 찾은 첫 단서를 고른다.
+ */
+export const HINTS: Record<string, [string, string]> = {
+  trash: ["사라진 프로그램이 어디로 갔는지부터 확인해야겠다.", "{victim}의 모니터를 눌러 바탕화면을 살펴보자. 휴지통이 수상하다."],
+  receiver: ["{victim}의 본체 주변이 마음에 걸린다.", "{victim}의 본체를 누르고 '뒤쪽 보기'로 넘겨 보자. 게시판의 장비표도 같이 보면 좋다."],
+  source: ["누가 {victim}의 컴퓨터를 만졌는지, 컴퓨터가 기억하고 있을지도 몰라.", "{victim}의 바탕화면에서 '최근 파일'을 열어 보자."],
+  chat: ["오늘 오전에 무슨 일이 있었는지 남은 기록이 있을까?", "{victim}의 바탕화면에서 메신저를 열어 보자."],
+  build: ["다른 사람들 자리에도 뭔가 남아 있을지 몰라.", "용의자들 자리의 모니터를 하나씩 눌러 보자."],
+};
+export const HINT_ORDER = ["trash", "receiver", "source", "chat", "build"];
+export const ALL_FOUND_HINT = "현장 단서는 다 모았다. 이제 사람들에게 단서를 내밀어 숨긴 이야기를 끌어내자.";
+
 /** "{victim}" 자리표시자를 채운다. */
 export const fillVictim = (s: string, victim: string) => s.replaceAll("{victim}", victim);

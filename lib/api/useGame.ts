@@ -44,7 +44,8 @@ export type GameActions = {
   unpinNote: (noteId: string) => void;
   addContradiction: (a: string, b: string, memo: string) => void;
   removeContradiction: (id: string) => void;
-  accuse: (a: Accusation) => Promise<void>;
+  /** 제출하고 결과(해결/미해결)를 돌려준다. */
+  accuse: (a: Accusation) => Promise<"win" | "lose">;
   reset: () => Promise<void>;
 };
 
@@ -55,16 +56,32 @@ export class ApiError extends Error {
   }
 }
 
+/** 응답을 이만큼 기다려도 안 오면 끊는다. 서버의 질문 마감(25초)보다 넉넉하게. */
+const TIMEOUT_MS = 40_000;
+
 async function api<T>(path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  } catch {
-    throw new ApiError(0, "서버에 연결하지 못했다. AI 서버가 켜져 있는지 확인해 줘.");
+    const signal = AbortSignal.timeout(TIMEOUT_MS);
+    res = await fetch(path, body === undefined ? { cache: "no-store", signal } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+  } catch (e) {
+    if ((e as Error).name === "TimeoutError") throw new ApiError(0, "응답이 너무 늦다. 잠시 뒤 다시 시도해 줘.");
+    throw new ApiError(0, "서버에 연결하지 못했다. 인터넷 연결을 확인해 줘.");
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "AI 서버에 연결하지 못했다. AI 서버가 켜져 있는지 확인해 줘." : "요청을 처리하지 못했다."));
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "서버에서 문제가 생겼다. 잠시 뒤 다시 시도해 줘." : "요청을 처리하지 못했다."));
+  // 성공 응답인데 JSON 객체가 아니면(HTML 오류 페이지 등) 성공으로 다루지 않는다.
+  if (!data || typeof data !== "object") throw new ApiError(res.status, "서버 응답을 읽지 못했다. 잠시 뒤 다시 시도해 줘.");
   return data as T;
+}
+
+/** 저장이 막혀 있거나 가득 차도 게임은 계속된다 (이번 화면에서만 기억). */
+function saveLocal(key: string, value: Local) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* 저장 실패는 무시 */
+  }
 }
 
 const EMOTION: Record<string, Emotion> = { 기본: "neutral", 당황: "flustered", 화남: "angry", 웃음: "smile" };
@@ -132,7 +149,8 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const sessionRef = useRef(session);
   sessionRef.current = session;
   // 실패한 요청을 같은 내용으로 다시 보낼 때는 같은 requestId를 쓴다 (서버의 중복 차감 방지).
-  const pending = useRef<{ fingerprint: string; requestId: string } | null>(null);
+  // 내용별로 따로 기억해서, 다른 질문을 먼저 보내도 앞 요청의 id가 지워지지 않는다. 성공하면 지운다.
+  const pending = useRef(new Map<string, string>());
 
   const adopt = useCallback((s: Session) => {
     keyRef.current = storageKey(s);
@@ -141,8 +159,18 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   }, []);
 
   const load = useCallback(() => {
+    let ignore = false;
     setError(null);
-    api<Session>("/api/session").then(adopt, (e: Error) => setError(e.message));
+    api<Session>("/api/session")
+      .then((s) => {
+        if (!ignore) adopt(s);
+      })
+      .catch((e: Error) => {
+        if (!ignore) setError(e.message);
+      });
+    return () => {
+      ignore = true;
+    };
   }, [adopt]);
 
   useEffect(load, [load]);
@@ -150,14 +178,15 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const update = useCallback((f: (l: Local) => Local) => {
     setLocal((l) => {
       const next = f(l);
-      if (keyRef.current) localStorage.setItem(keyRef.current, JSON.stringify(next));
+      if (keyRef.current) saveLocal(keyRef.current, next);
       return next;
     });
   }, []);
 
   const requestId = (fingerprint: string) => {
-    if (pending.current?.fingerprint !== fingerprint) pending.current = { fingerprint, requestId: uid() };
-    return pending.current.requestId;
+    let id = pending.current.get(fingerprint);
+    if (!id) pending.current.set(fingerprint, (id = uid()));
+    return id;
   };
 
   const view = useMemo<GameView | null>(() => {
@@ -185,6 +214,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
       scenario,
       me: { questionsUsed: session.maxQuestions - session.remaining, started: local.started || session.turns.length > 0 || !!r, submitted: !!r },
       checked: local.checked,
+      clues: session.clues.map((c) => ({ id: c.id, title: c.title, found: c.id in local.found, icon: CLUE_META[c.id]?.icon ?? TESTIMONY_ICON, timeLabel: CLUE_META[c.id]?.timeLabel })),
       evidence,
       messages,
       notes: local.notes,
@@ -194,10 +224,11 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
             verdict: r.score === 1 ? "win" : "lose",
             mine: { culprit: nameOf(local.mine?.suspectId ?? ""), motive: local.mine?.motive ?? "" },
             truth: r.truth,
-            cast: r.cast.map((c) => ({ name: c.name, title: c.title })),
+            // 서버 배정에서 역할 D가 범인이다 (HANDOFF.md §3, title도 "범인").
+            cast: r.cast.map((c) => ({ name: c.name, title: c.title, culprit: c.role === "D" || c.title === "범인" })),
             usage: {
+              pinned: local.notes.length,
               questionsUsed: session.maxQuestions - session.remaining,
-              evidenceFound: clues.length,
               evidenceShown: [...new Set(messages.flatMap((m) => (m.clueId ? [evidence.find((e) => e.id === m.clueId)?.name ?? ""] : [])))].filter(Boolean),
             },
           }
@@ -236,9 +267,10 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const attach = clueId ? (clueId.startsWith("turn:") ? { type: "turn", id: clueId.slice(5) } : { type: "clue", id: clueId }) : undefined;
     // 서버는 빈 질문을 받지 않는다. 증거만 내밀면 짧은 말을 붙인다.
     const q = question.trim() || "이것 좀 보세요.";
-    const body = { npc: suspectId, question: q, attach, requestId: requestId(JSON.stringify(["q", suspectId, q, clueId])) };
+    const fingerprint = JSON.stringify(["q", suspectId, q, clueId]);
+    const body = { npc: suspectId, question: q, attach, requestId: requestId(fingerprint) };
     const r = await api<{ status: "accepted" | "clarify" | "rejected"; turn?: ServerTurn; message?: string; remaining: number }>("/api/question", body);
-    pending.current = null;
+    pending.current.delete(fingerprint);
     if (r.status !== "accepted" || !r.turn) {
       setSession((s) => s && { ...s, remaining: r.remaining });
       return { type: "notice", text: r.message ?? "다시 물어봐 줘." };
@@ -251,16 +283,28 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const accuse = useCallback(
     async (a: Accusation) => {
       update((l) => ({ ...l, mine: a }));
-      const r = await api<{ result: ServerResult }>("/api/submit", { npc: a.suspectId, motive: a.motive, requestId: requestId(JSON.stringify(["s", a.suspectId, a.motive])) });
-      pending.current = null;
+      const fingerprint = JSON.stringify(["s", a.suspectId, a.motive]);
+      const r = await api<{ result: ServerResult }>("/api/submit", { npc: a.suspectId, motive: a.motive, requestId: requestId(fingerprint) });
+      pending.current.delete(fingerprint);
       setSession((s) => s && { ...s, result: r.result });
+      return r.result.score === 1 ? "win" : "lose";
     },
     [update],
   );
 
   const reset = useCallback(async () => {
-    if (keyRef.current) localStorage.removeItem(keyRef.current);
-    adopt(await api<Session>("/api/reset", {}));
+    const old = keyRef.current;
+    // 서버가 새 게임을 만든 뒤에만 이전 메모를 지운다 (실패하면 지금 게임과 메모가 그대로 남는다).
+    const next = await api<Session>("/api/reset", {});
+    if (old) {
+      try {
+        localStorage.removeItem(old);
+      } catch {
+        /* 무시 */
+      }
+    }
+    pending.current.clear();
+    adopt(next);
   }, [adopt]);
 
   const pinNote = useCallback(

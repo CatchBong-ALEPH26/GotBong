@@ -7,20 +7,10 @@ import {
   publicCase,
 } from "../../../lib/game/game.mjs";
 import { modelFromEnv } from "../../../lib/ai/llm.mjs";
+// 내부 역할과 사실 태그를 빼는 함수는 다른 API와 같은 것을 쓴다 (한 곳만 고치면 되도록).
+import { getGameId, publicTurn } from "../../../lib/server/game-http.mjs";
 
 const MAX_QUESTIONS = 20;
-
-// 내부 역할과 사실 태그는 브라우저에 노출하지 않는다.
-function publicTurn(turn) {
-  return {
-    id: turn.id,
-    npc: turn.npc,
-    question: turn.question,
-    reply: turn.reply,
-    emotion: turn.emotion,
-    attach: turn.attach,
-  };
-}
 
 export async function GET(request) {
   try {
@@ -28,9 +18,7 @@ export async function GET(request) {
     const { mode } = modelFromEnv(env);
 
     // 1. 기존 게임 세션 쿠키 확인
-    const cookie = request.headers
-      .get("cookie")
-      ?.match(/(?:^|;\s*)game=([a-f0-9-]{36})(?=;|$)/i)?.[1];
+    const cookie = getGameId(request);
 
     let game = cookie ? await db.getGame(cookie) : null;
     let newGameCreated = false;

@@ -108,8 +108,9 @@ const rows = await pool(jobs, CONCURRENCY, async ({ cast, roleId, q, expect }) =
   const game = { cast, victim: '곽도현', state: initialState() };
   try {
     const r = await runQuestion({ model, game, roleId, question: q.text, attach: null, history: [] });
-    const score = q.kind === 'probe'
-      ? { persona: null, paranoid: false, leak: false, comment: '해금 검사' }
+    // 반려된 답은 플레이어에게 전달되지 않으므로 채점하지 않는다 (반려 수는 따로 센다).
+    const score = q.kind === 'probe' || !r.pass
+      ? { persona: null, paranoid: false, leak: false, comment: r.pass ? '해금 검사' : '반려됨 (전달 안 됨)' }
       : await judge({ game, roleId, question: q, reply: r.reply, state: r.state });
     process.stdout.write('.');
     return { cast, roleId, person: characters[cast[roleId]].name, q, expect, reply: r.reply, pass: r.pass, debug: r.debug, score };
@@ -128,18 +129,19 @@ const quantile = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.
 const byPerson = characterIds.map(id => {
   const name = characters[id].name;
   const mine = ok.filter(r => r.person === name && r.q.kind !== 'probe');
-  const chats = mine.filter(r => r.q.kind === 'chat');
+  const delivered = mine.filter(r => r.pass);
+  const chats = delivered.filter(r => r.q.kind === 'chat');
   return {
     name,
-    persona: mine.length ? (mine.reduce((s, r) => s + r.score.persona, 0) / mine.length).toFixed(2) : '-',
+    persona: delivered.length ? (delivered.reduce((s, r) => s + r.score.persona, 0) / delivered.length).toFixed(2) : '-',
     paranoid: pct(chats.filter(r => r.score.paranoid).length, chats.length),
-    leak: mine.filter(r => r.score.leak).length,
+    leak: delivered.filter(r => r.score.leak).length,
     rejected: mine.filter(r => !r.pass).length
   };
 });
 
 const generic = ok.filter(r => r.q.kind === 'case' || r.q.kind === 'accuse' || r.q.kind === 'chat');
-const falseUnlocks = generic.filter(r => r.debug.unlocked.length);
+const falseUnlocks = generic.filter(r => r.pass && r.debug.unlocked.length);
 const probes = ok.filter(r => r.q.kind === 'probe');
 const probeHits = probes.filter(r => r.debug.unlocked.includes(r.expect));
 

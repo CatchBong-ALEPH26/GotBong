@@ -10,13 +10,18 @@ const GROUPS: { kind: Evidence["kind"]; label: string }[] = [
 ];
 
 /** 증거 고르기 창. 현장 단서와 다른 사람의 말(증언)을 내밀 수 있다. 지금 묻는 사람 본인의 말은 빠진다. */
+/** 열릴 때 창으로 포커스를 옮긴다. 모듈 함수라 다시 그려도 다시 불리지 않는다. */
+const focusOnOpen = (el: HTMLElement | null) => {
+  el?.focus({ preventScroll: true });
+};
+
 export function EvidenceBag({ view, target, selectedId, onUse, onClose }: { view: GameView; target: string | null; selectedId: string | null; onUse: (id: string) => void; onClose: () => void }) {
   const usable = view.evidence.filter((e) => !target || e.suspectId !== target);
   const [pick, setPick] = useState<string | null>(selectedId ?? usable[0]?.id ?? null);
   const cur = usable.find((c) => c.id === pick) ?? null;
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="bag px" role="dialog" aria-label="증거 고르기" onClick={(e) => e.stopPropagation()}>
+      <div className="bag px" role="dialog" aria-modal="true" aria-label="증거 고르기" tabIndex={-1} ref={focusOnOpen} onClick={(e) => e.stopPropagation()}>
         <div className="bag-head">
           <span className="px-tag"><PixelIcon name="bag" size={14} /> 내밀 증거 고르기</span>
           <button className="px-btn small icon" onClick={onClose} aria-label="닫기"><PixelIcon name="close" size={14} /></button>

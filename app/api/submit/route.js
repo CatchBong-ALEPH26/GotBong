@@ -18,6 +18,7 @@ import {
   GameHttpError,
   getGameId,
   readGameJson,
+  commitOrReplay,
 } from "../../../lib/server/game-http.mjs";
 
 const MAX_INPUT = 500;
@@ -125,52 +126,21 @@ export async function POST(request) {
 
     // 6. 결과와 요청 이력을
     // 하나의 D1 트랜잭션으로 저장한다.
-    try {
-      await db.commit({
+    // 동시에 같은 요청이 성공했다면 저장된 결과를 재사용하고,
+    // 다른 질문 또는 최종 제출이 먼저 반영됐다면 409를 돌려준다.
+    const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
+      db.commit({
         gameId: game.id,
         expectedRevision: game.revision,
         requestId,
         fingerprint,
         response,
         result,
-      });
-    } catch (error) {
-      // 동시에 같은 요청이 성공했다면
-      // 저장된 결과를 재사용한다.
-      const saved = await db.getRequest(
-        game.id,
-        requestId
-      );
-
-      if (saved) {
-        if (saved.fingerprint !== fingerprint) {
-          throw new GameHttpError(
-            409,
-            "요청 ID가 다른 입력에 사용됐습니다."
-          );
-        }
-
-        return json(JSON.parse(saved.response));
-      }
-
-      // 다른 질문 또는 최종 제출이 먼저 반영된 경우
-      const latest = await db.getGame(game.id);
-
-      if (
-        latest?.result ||
-        latest?.revision !== game.revision
-      ) {
-        throw new GameHttpError(
-          409,
-          "게임 상태가 변경됐습니다. 페이지를 새로고침해 주세요."
-        );
-      }
-
-      throw error;
-    }
+      })
+    );
 
     // 7. 최종 결과 반환
-    return json(response);
+    return json(replay ?? response);
 
   } catch (error) {
     // 입력 오류, 세션 오류, 중복 요청 등

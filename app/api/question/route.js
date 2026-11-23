@@ -16,6 +16,7 @@ import {
   getGameId,
   readGameJson,
   publicTurn,
+  commitOrReplay,
 } from "../../../lib/server/game-http.mjs";
 
 const MAX_INPUT = 500;
@@ -113,6 +114,17 @@ export async function POST(request) {
     const question = input.question.trim();
 
     // 3. 중복 요청 판별용 지문 생성
+    // 첨부 모양을 먼저 확인해야, 잘못된 첨부가 예전 응답의 재생으로 새지 않는다.
+    if (
+      input.attach != null &&
+      (typeof input.attach !== "object" ||
+        Array.isArray(input.attach) ||
+        typeof input.attach.type !== "string" ||
+        typeof input.attach.id !== "string")
+    ) {
+      throw new GameHttpError(400, "첨부 형식이 올바르지 않습니다.");
+    }
+
     const attachKey = input.attach
       ? `${input.attach.type}:${input.attach.id}`
       : null;
@@ -185,15 +197,17 @@ export async function POST(request) {
           remaining: game.remaining,
         };
 
-        await db.commit({
-          gameId: game.id,
-          requestId,
-          fingerprint,
-          response,
-          expectedRevision: game.revision,
-        });
+        const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
+          db.commit({
+            gameId: game.id,
+            requestId,
+            fingerprint,
+            response,
+            expectedRevision: game.revision,
+          })
+        );
 
-        return json(response);
+        return json(replay ?? response);
       }
 
       throw error;
@@ -208,15 +222,17 @@ export async function POST(request) {
         remaining: game.remaining,
       };
 
-      await db.commit({
-        gameId: game.id,
-        requestId,
-        fingerprint,
-        response,
-        expectedRevision: game.revision,
-      });
+      const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
+        db.commit({
+          gameId: game.id,
+          requestId,
+          fingerprint,
+          response,
+          expectedRevision: game.revision,
+        })
+      );
 
-      return json(response);
+      return json(replay ?? response);
     }
 
     // 8. 클라이언트에 공개할 첨부 정보
@@ -251,21 +267,24 @@ export async function POST(request) {
     };
 
     // 10. 대화·상태·요청 기록을 D1에 저장
-    await db.commit({
-      gameId: game.id,
-      expectedRevision: game.revision,
-      requestId,
-      fingerprint,
-      response,
-      turn,
-      state: {
-        ...game.state,
-        [roleId]: answer.state,
-      },
-      remaining,
-    });
+    // 동시에 다른 질문이 먼저 저장됐으면 409, 같은 요청이 먼저 저장됐으면 그 응답을 재생한다.
+    const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
+      db.commit({
+        gameId: game.id,
+        expectedRevision: game.revision,
+        requestId,
+        fingerprint,
+        response,
+        turn,
+        state: {
+          ...game.state,
+          [roleId]: answer.state,
+        },
+        remaining,
+      })
+    );
 
-    return json(response);
+    return json(replay ?? response);
   } catch (error) {
     if (error instanceof GameHttpError) {
       return json({ error: error.message }, error.status);
