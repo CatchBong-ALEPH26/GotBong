@@ -70,6 +70,7 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
               {motiveMark && <span className={`mark ${motiveMark}`}>{motiveMark === "ok" ? "○ 맞음" : "× 틀림"}</span>}
             </p>
             {!motiveMark && <p className="pencil small">범인이 달라서 동기는 따로 채점하지 않았다.</p>}
+            {r.grader === "fixture" && <p className="pencil small">테스트 모드: 동기는 AI가 아닌 키워드 비교로 채점했다.</p>}
           </div>
         </section>
 

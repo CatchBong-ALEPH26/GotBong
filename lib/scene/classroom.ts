@@ -29,7 +29,7 @@ export const CLUE_META: Record<string, { icon: string; place: string; order: num
   chat: { icon: icon(8), place: "{victim}의 메신저", order: 930, timeLabel: "09:30" },
 };
 
-/** 누른 곳 → 단서 카드 id. 사람 모니터(monitor-<사람 ID>)는 따로 판정한다(빌드 기록은 단서 제목에 적힌 사람의 모니터에서 나온다). */
+/** 누른 곳 → 단서 카드 id. 사람 모니터(monitor-<사람 ID>)는 서버(/api/investigate)가 판정한다(빌드 기록은 범인 자리의 모니터에서 나온다). */
 export const SPOT_TO_CLUE: Record<string, string> = {
   "desk-folder": "trash",
   "desk-trash": "trash",

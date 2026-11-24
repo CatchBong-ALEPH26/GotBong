@@ -8,7 +8,13 @@ import {
 } from "../../../lib/game/game.mjs";
 import { modelFromEnv } from "../../../lib/ai/llm.mjs";
 // 내부 역할과 사실 태그를 빼는 함수는 다른 API와 같은 것을 쓴다 (한 곳만 고치면 되도록).
-import { getGameId, publicTurn } from "../../../lib/server/game-http.mjs";
+import {
+  GameHttpError,
+  getGameId,
+  limitGameCreation,
+  publicGameKey,
+  publicTurn,
+} from "../../../lib/server/game-http.mjs";
 
 const MAX_QUESTIONS = 20;
 
@@ -25,6 +31,9 @@ export async function GET(request) {
 
     // 2. 기존 게임이 없으면 새 게임 생성
     if (!game) {
+      // 쿠키 없는 요청이 반복돼 게임이 무한히 쌓이지 않게 IP당 생성 속도를 제한한다.
+      await limitGameCreation(env, request);
+
       const id = crypto.randomUUID();
       const { cast, victim } = newCasting();
 
@@ -46,6 +55,7 @@ export async function GET(request) {
     const snapshot = {
       ...publicCase(game),
       mode,
+      gameKey: await publicGameKey(game.id),
       remaining: game.remaining,
       maxQuestions: MAX_QUESTIONS,
       turns: turns.map(publicTurn),
@@ -70,6 +80,13 @@ export async function GET(request) {
 
     return response;
   } catch (error) {
+    if (error instanceof GameHttpError) {
+      return Response.json(
+        { error: error.message },
+        { status: error.status, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     console.error("게임 세션 API 오류:", error);
 
     return Response.json(

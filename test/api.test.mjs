@@ -22,7 +22,8 @@ const routes = {
   session: (await import('../app/api/session/route.js')).GET,
   question: (await import('../app/api/question/route.js')).POST,
   submit: (await import('../app/api/submit/route.js')).POST,
-  reset: (await import('../app/api/reset/route.js')).POST
+  reset: (await import('../app/api/reset/route.js')).POST,
+  investigate: (await import('../app/api/investigate/route.js')).POST
 };
 
 // D1 바인딩에서 db-d1.mjs가 쓰는 부분만 구현: prepare().bind().first/all/run, batch(트랜잭션)
@@ -36,7 +37,8 @@ function fakeD1() {
     bind: (...values) => statement(query, values),
     first: async () => sql.prepare(query).get(...args) ?? null,
     all: async () => ({ results: sql.prepare(query).all(...args) }),
-    run: async () => (sql.prepare(query).run(...args), { success: true }),
+    // 실제 D1처럼 바뀐 행 수를 meta.changes로 돌려준다
+    run: async () => ({ success: true, meta: { changes: Number(sql.prepare(query).run(...args).changes) } }),
     exec: () => sql.prepare(query).run(...args)
   });
   return {
@@ -56,6 +58,7 @@ function fakeD1() {
 }
 
 const CAST = { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' };
+const cookieOf = r => r.headers.get('set-cookie') ?? '';
 
 function start(t) {
   const db = fakeD1();
@@ -99,7 +102,11 @@ test('세션: 쿠키 발급, 사람 ID만 노출, 실명·피해자 치환, 사�
   assert.equal(data.clues.length, 5);
   assert.equal(data.victim, '곽도현');
   assert.match(data.intro, /곽도현이/);
-  assert.match(data.clues.find(c => c.id === 'build').title, /황건희/);
+  // 단서 카드는 찾기 전에 브라우저로 가므로 범인(D=황건희) 이름이 없어야 한다
+  const build = data.clues.find(c => c.id === 'build');
+  assert.ok(!/황건희/.test(build.title + build.detail), '빌드 기록 카드에 범인 이름 유출');
+  assert.match(data.gameKey, /^[a-f0-9]{20}$/);
+  assert.ok(!cookieOf(first).includes(data.gameKey), '게임 키는 쿠키의 게임 ID가 아니다');
   assert.equal(data.mode, 'fixture');
   assert.equal(data.remaining, 20);
 
@@ -237,4 +244,62 @@ test('보호: 새 게임은 JSON 요청만, 잘못된 첨부는 재생 전에 40
   const body = { npc: 'kim', question: '쉬는 시간에 어디 계셨어요?', requestId: 'attach-0001' };
   assert.equal((await request('question', body)).code, 200);
   assert.equal((await request('question', { ...body, attach: 'x' })).code, 400);
+});
+
+test('조사: 빌드 기록은 범인 자리 모니터에서만, 서버가 판정한다', async t => {
+  const { request, fixCast } = start(t);
+  assert.equal((await request('investigate', { spot: 'monitor-hwanggh' })).code, 409, '세션 없이 조사 불가');
+  await request('session');
+  fixCast();
+  const hit = await request('investigate', { spot: 'monitor-hwanggh' });
+  assert.equal(hit.code, 200);
+  assert.equal(hit.data.clue.id, 'build');
+  for (const npc of ['kim', 'hwangyc', 'won']) {
+    assert.equal((await request('investigate', { spot: 'monitor-' + npc })).data.clue, null);
+  }
+  assert.equal((await request('investigate', { spot: 'desk' })).data.clue, null);
+  assert.equal((await request('investigate', { spot: 42 })).code, 400);
+});
+
+test('새 게임 생성 속도 제한: 한도를 넘으면 429, 게임을 만들지 않는다', async t => {
+  const { db, request } = start(t);
+  let calls = 0;
+  env.GAME_CREATE_LIMITER = { limit: async ({ key }) => ({ success: ++calls <= 1 && typeof key === 'string' }) };
+  assert.equal((await request('session')).code, 200);
+  const blocked = await request('reset', {});
+  assert.equal(blocked.code, 429);
+  assert.equal(blocked.headers.get('set-cookie'), null);
+  assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM games').get().n, 1);
+});
+
+test('빈 게임 정리: 오래되고 질문·요청·제출이 모두 없는 게임만 지운다', async t => {
+  const { db, request, ask, fixCast } = start(t);
+  const { openD1 } = await import('../lib/server/db-d1.mjs');
+  const store = openD1(db);
+  await request('session');
+  fixCast();
+  await ask('kim', '쉬는 시간에 어디 계셨어요?'); // 플레이한 게임
+  const old = Date.now() - 8 * 24 * 3600 * 1000;
+  for (const id of ['empty-old-0000000000000000000000000', 'empty-new-0000000000000000000000000', 'tried-old-0000000000000000000000000']) {
+    await store.createGame({ id, cast: CAST, victim: '곽도현', state: {}, remaining: 20 });
+  }
+  db.sql.prepare("UPDATE games SET created_at = ? WHERE id != 'empty-new-0000000000000000000000000'").run(old);
+  db.sql.prepare("INSERT INTO requests (game_id, id, fingerprint, response) VALUES ('tried-old-0000000000000000000000000', 'r1', 'x', '{}')").run();
+  const deleted = await store.deleteEmptyGames({ olderThanMs: 7 * 24 * 3600 * 1000 });
+  assert.equal(deleted, 1);
+  const left = db.sql.prepare('SELECT id FROM games ORDER BY id').all().map(r => r.id);
+  assert.ok(!left.includes('empty-old-0000000000000000000000000'));
+  assert.equal(left.length, 3, '플레이한 게임·새 게임·요청이 있는 게임은 남는다');
+});
+
+test('최종 제출: 결과에 동기 채점 방식이 남는다', async t => {
+  const { request, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  const right = await request('submit', { npc: 'hwanggh', motive: '놀림에 대한 복수', requestId: 'grader-0001' });
+  assert.equal(right.data.result.grader, 'fixture');
+  await request('reset', {});
+  fixCast();
+  const wrong = await request('submit', { npc: 'kim', motive: '놀림에 대한 복수', requestId: 'grader-0002' });
+  assert.equal(wrong.data.result.grader, null, '범인이 틀리면 채점하지 않는다');
 });

@@ -12,7 +12,9 @@ GotBong은 **Cloudflare 중심 단일 구조**입니다. 로컬 개발도 운영
 | 구분 | 로컬 개발 | Cloudflare 배포 |
 | --- | --- | --- |
 | 웹 + API | `npm run dev` → vinext/Vite (`http://localhost:3000`) | vinext / Cloudflare Workers |
-| API 라우트 | `app/api/{session,question,submit,reset}/route.js` | 동일 |
+| API 라우트 | `app/api/{session,question,submit,reset,investigate}/route.js` | 동일 |
+| 속도 제한 | 바인딩 없음 → 제한 안 함 | `GAME_CREATE_LIMITER`: 새 게임 생성 IP당 1분 10번 |
+| 예약 작업 | `/cdn-cgi/local/explorer/api/local/scheduled?worker=gotbong` (POST, `{"cron":"0 4 * * *"}`)로 직접 실행 | 매일 04:00 UTC, 7일 지난 빈 게임 정리 (`worker/index.js`) |
 | 데이터 | 로컬 D1 시뮬레이션 (`.cloudflare/state`, Git 제외) | Cloudflare D1 `gotbong-dev` |
 | 모델 | API 키 없으면 Fixture | 현재 Fixture (실제 모델 호출 미검증) |
 
@@ -144,7 +146,7 @@ git diff --cached --check
 
 스테이징된 파일에 `.env`, 키 문자열, 로컬 D1 상태(`.cloudflare/`), 개인 계정에 연결된 잘못된 설정이 없는지 **내용까지 확인**하세요. 이후 팀 규칙에 따라 커밋하고, 허용된 방식으로 `main`에 반영하거나 Pull Request를 만듭니다. 보호된 브랜치에서는 직접 푸시하지 않습니다. `--force` 푸시는 사용하지 않습니다.
 
-서버 코드 위치: `app/api/` 아래 API 4개, `lib/server/`(`db-d1.mjs`, `game-http.mjs`), `lib/game/`(게임 규칙·`data/` 시나리오), `lib/ai/`(모델·질문 파이프라인), `migrations/`, `cloudflare.config.ts`.
+서버 코드 위치: `app/api/` 아래 API 5개, `worker/index.js`(진입점·예약 작업), `lib/server/`(`db-d1.mjs`, `game-http.mjs`), `lib/game/`(게임 규칙·`data/` 시나리오), `lib/ai/`(모델·질문 파이프라인), `migrations/`, `cloudflare.config.ts`.
 
 ## 9. 문제 해결
 

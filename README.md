@@ -28,7 +28,7 @@ npm test                      # 게임 규칙 + API 계약 테스트 (실제 AI�
 - `lib/scene/classroom.ts` — 장면 좌표, 어디를 누르면 어느 단서 카드가 나오는지(화면 담당). 역할 기준 정보는 없다.
 - 장면에서 찾은 단서, 밑줄, 연필 선, 내가 낸 답은 브라우저 `localStorage`에만 둔다(서버 판정과 무관).
 - 연결 안내와 팀 결정 사항: `docs/game/INTEGRATION.md` (Node 서버 시절 기록)
-- 서버 쪽: `app/api/{session,question,submit,reset}/route.js` → `lib/server/`(D1·HTTP 공통) · `lib/game/`(배정·상태 기계·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인)
+- 서버 쪽: `app/api/{session,question,submit,reset,investigate}/route.js` (진입점 `worker/index.js`) → `lib/server/`(D1·HTTP 공통) · `lib/game/`(배정·상태 기계·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인)
 
 ## 파일
 | 영역 | 파일 |

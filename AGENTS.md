@@ -10,7 +10,8 @@
 |---|---|
 | `app/`, `components/`, `lib/view/`, `lib/scene/` | 화면 |
 | `lib/api/useGame.ts` | 화면 ↔ `/api/*` 연결, 화면 전용 상태는 `localStorage` |
-| `app/api/{session,question,submit,reset}/route.js` | Workers API 4개 |
+| `app/api/{session,question,submit,reset,investigate}/route.js` | Workers API 5개 |
+| `worker/index.js` | Worker 진입점: vinext 처리(`fetch`) + 매일 빈 게임 정리(`scheduled`) |
 | `lib/server/` | `db-d1.mjs`(D1 접근), `game-http.mjs`(오류·쿠키·입력 검증·공개 턴) |
 | `lib/game/` | 배정·상태 기계(`game.mjs`), 조사 치환(`josa.mjs`), 시나리오·캐릭터·피해자(`data/`) |
 | `lib/ai/` | 모델 선택 Fixture/OpenAI/Gemini(`llm.mjs`), 질문 파이프라인(`pipeline.mjs`), 프롬프트(`prompts.mjs`) |
@@ -38,14 +39,14 @@
 - `main` 직접 push, `--force` push, Cloudflare 배포(`npm run deploy`, `cf deploy`).
 - API 키·토큰을 코드·`.env.example`·문서·커밋에 쓰기. Cloudflare Secrets 등록.
 - 비용이 드는 실제 AI 호출(`npm run eval`, OpenAI·Gemini 키로 실행).
-- 기존 게임 기록(`games`, `turns`, `requests`) 삭제.
+- 기존 게임 기록(`games`, `turns`, `requests`) 삭제. 예외(팀 승인 2026-11-24): `worker/index.js`의 매일 정리가 **7일 지난, 질문·요청·제출이 모두 없는 빈 게임**만 지운다. 이 조건을 넓히려면 다시 승인받는다.
 
 작업은 별도 브랜치에서 하고, Pull Request로 리뷰받는다.
 
 ## 4. 지켜야 할 계약
 
-- **API 형태:** `GET /api/session` → `{ intro, victim, clues, npcs, mode, remaining, maxQuestions, turns, result }` / `POST /api/question` `{ npc, question, requestId, attach? }` → `accepted | clarify | rejected` / `POST /api/submit` `{ npc, motive, requestId }` → `{ result: { score, truth, cast } }` / `POST /api/reset` → 새 사건, `game` 쿠키 교체. 오류는 HTTP 상태 + `{ error: string }`. 화면은 상대 경로 `/api/*`만 쓴다.
-- **비공개 정보:** 최종 제출 전에는 역할 배정(A~D), 사실 태그(`facts`), 해금 상태를 브라우저에 보내지 않는다. `publicTurn()` 반환 필드를 바꾸면 유출 여부를 확인한다. 범인 역할은 D지만 사람과 역할 배정은 게임마다 바뀐다.
+- **API 형태:** `GET /api/session` → `{ intro, victim, clues, npcs, mode, gameKey, remaining, maxQuestions, turns, result }` / `POST /api/question` `{ npc, question, requestId, attach? }` → `accepted | clarify | rejected` / `POST /api/submit` `{ npc, motive, requestId }` → `{ result: { score, grader, truth, cast } }` (`grader`: 동기 채점 방식 `fixture|gemini|openai`, 범인이 틀리면 `null`) / `POST /api/reset` (JSON 요청만) → 새 사건, `game` 쿠키 교체 / `POST /api/investigate` `{ spot }` → `{ clue: {id,title,detail} | null }` (용의자 모니터처럼 범인에 따라 달라지는 곳은 서버가 판정). 새 게임 생성(`session` 첫 접속, `reset`)은 IP당 1분 10번(`GAME_CREATE_LIMITER`), 넘으면 429. 오류는 HTTP 상태 + `{ error: string }`. 화면은 상대 경로 `/api/*`만 쓴다.
+- **비공개 정보:** 최종 제출 전에는 역할 배정(A~D), 사실 태그(`facts`), 해금 상태를 브라우저에 보내지 않는다. 단서 카드(`clues`)는 찾기 전에 브라우저로 가므로 제목·내용에 범인 이름을 넣지 않는다(`build` 카드 참고). `publicTurn()` 반환 필드를 바꾸면 유출 여부를 확인한다. 범인 역할은 D지만 사람과 역할 배정은 게임마다 바뀐다.
 - **멱등성·동시성:** 클라이언트 `requestId`, `requests` 테이블의 `fingerprint`, `games.revision` + `db.batch()` 원자 저장을 제거하지 않는다.
 - **스키마 변경:** 기존 마이그레이션을 고치지 말고 번호를 올린 새 파일로 추가하고, 데이터 보존·롤백을 검토한다.
 - 화면 전용 상태(찾은 단서, 메모, 연필 선 등)는 `localStorage`에 있고 D1로 옮겨지지 않았다.
