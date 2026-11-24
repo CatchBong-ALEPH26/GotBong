@@ -8,7 +8,12 @@ import {
   publicCase,
 } from "../../../lib/game/game.mjs";
 import { modelFromEnv } from "../../../lib/ai/llm.mjs";
-import { GameHttpError, readGameJson } from "../../../lib/server/game-http.mjs";
+import {
+  GameHttpError,
+  limitGameCreation,
+  publicGameKey,
+  readGameJson,
+} from "../../../lib/server/game-http.mjs";
 
 const MAX_QUESTIONS = 20;
 
@@ -19,6 +24,7 @@ export async function POST(request) {
     // 다른 사이트의 폼 전송으로 쿠키가 바뀌지 않도록 JSON 요청만 받는다.
     // (교차 사이트 폼은 application/json을 보낼 수 없다.)
     await readGameJson(request);
+    await limitGameCreation(env, request);
 
     const db = openD1(env.DB);
     const { mode } = modelFromEnv(env);
@@ -43,6 +49,7 @@ export async function POST(request) {
     const snapshot = {
       ...publicCase(game),
       mode,
+      gameKey: await publicGameKey(game.id),
       remaining: game.remaining,
       maxQuestions: MAX_QUESTIONS,
       turns: [],

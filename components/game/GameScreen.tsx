@@ -70,8 +70,15 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }, []);
   const prompt = (text: string) => setDialog({ kind: "prompt", key: `${text}-${Date.now()}`, text });
 
-  function look(spot: Hotspot) {
-    const r = actions.investigate(spot.id);
+  async function look(spot: Hotspot) {
+    let r;
+    try {
+      r = await actions.investigate(spot.id);
+    } catch (e) {
+      play("notice");
+      setDialog({ kind: "notice", key: `look-${Date.now()}`, text: `${(e as Error).message} 다시 눌러 조사해 보자.` });
+      return;
+    }
     if (r.evidence && r.isNew) {
       play("found");
       setLastProgress(Date.now());
@@ -98,7 +105,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       setDialog({ kind: "narrate", key: `cu-${spot.id}-${Date.now()}`, title: spot.label, text: "가까이 들여다본다. 수상한 곳을 눌러 보자." });
       return;
     }
-    look(spot);
+    void look(spot);
   }
 
   function onHit(h: Hit) {

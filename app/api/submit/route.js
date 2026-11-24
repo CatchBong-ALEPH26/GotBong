@@ -102,9 +102,13 @@ export async function POST(request) {
     // 4. 범인이 맞을 때만 동기를 채점한다.
     const roleId = roleOf(game.cast, npc);
     let match = false;
+    // 어떤 채점기로 동기를 판정했는지 결과에 남긴다.
+    // 'fixture'는 키워드 비교(테스트 모드), 'gemini'·'openai'는 실제 AI. 범인을 틀리면 채점하지 않으므로 null.
+    let grader = null;
 
     if (roleId === culprit) {
-      const { model } = modelFromEnv(env);
+      const { model, mode } = modelFromEnv(env);
+      grader = mode;
 
       const graded = await gradeMotive({
         model,
@@ -118,6 +122,7 @@ export async function POST(request) {
     // 5. 최종 판정 결과 생성
     const result = {
       score: match ? 1 : 0,
+      grader,
       truth: truthText(game),
       cast: revealCast(game),
     };

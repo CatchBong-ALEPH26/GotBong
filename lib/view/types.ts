@@ -102,6 +102,8 @@ export type ReportView = {
   mine: { culprit: string; motive: string };
   truth: string; // 여러 줄
   cast: { name: string; title: string; culprit: boolean }[]; // 사람마다 실제로 맡았던 역할
+  /** 동기를 채점한 방식. fixture = 테스트용 키워드 비교, gemini·openai = 실제 AI, null = 범인이 틀려 채점 안 함 */
+  grader: "fixture" | "gemini" | "openai" | null;
   usage: { questionsUsed: number; evidenceShown: string[]; pinned: number };
 };
 
