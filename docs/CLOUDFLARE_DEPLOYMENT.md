@@ -1,6 +1,6 @@
 # GotBong — Cloudflare 배포 및 팀 개발 가이드
 
-> 문서 기준일: 2026-11-22
+> 문서 기준일: 2026-11-24
 > 현재 공개 버전: **Fixture 테스트 모드** (OpenAI·Gemini API 키 미등록)
 > 배포 주소: <https://gotbong.aleph26.workers.dev/>
 > 저장소: <https://github.com/CatchBong-ALEPH26/GotBong>
@@ -32,7 +32,7 @@ GotBong은 **Cloudflare 중심 단일 구조**입니다. 로컬 개발도 운영
 | D1 데이터베이스 ID | `215068c4-cd09-4933-9f86-460b937a13b5` |
 | Worker의 DB 바인딩 | `env.DB` |
 | 배포에 사용한 CLI | `cf v1.0.0-rc.2` |
-| 마지막 확인 배포 버전 ID | `460cbf8d-93d2-4cd1-b162-23617d11b711` |
+| 마지막 확인 배포 버전 ID | `aee8abd2-0b80-4748-b4e0-5638afbe3acd` (2026-11-24, PR #5: 속도 제한·매일 빈 게임 정리 포함) |
 
 팀원이 배포에 참여하려면 **GitHub 저장소 접근 권한**과 **GotBong Team Cloudflare 계정 권한**을 각각 받아야 합니다. 두 권한은 별도입니다.
 
