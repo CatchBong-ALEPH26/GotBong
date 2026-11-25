@@ -8,6 +8,8 @@ import {
   GameHttpError,
   getGameId,
   readGameJson,
+  checkRoom,
+  errorBody,
 } from "../../../lib/server/game-http.mjs";
 import { say } from "../../../lib/game/data/thoughts.mjs";
 
@@ -33,6 +35,9 @@ export async function POST(request) {
       throw new GameHttpError(409, say("noSession"));
     }
 
+    // 조사도 방 활동이다: 차단된 방이면 거절, 진행 중이면 마지막 활동 시각 갱신(최소 간격)
+    await checkRoom(db, game, { touch: true });
+
     if (typeof input.spot !== "string" || input.spot.length > 60) {
       throw new GameHttpError(400, "조사할 곳을 확인해 주세요.");
     }
@@ -48,7 +53,7 @@ export async function POST(request) {
     });
   } catch (error) {
     if (error instanceof GameHttpError) {
-      return json({ error: error.message }, error.status);
+      return json(errorBody(error), error.status);
     }
 
     console.error("조사 API 오류:", error);

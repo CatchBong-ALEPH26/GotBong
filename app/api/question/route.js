@@ -15,6 +15,8 @@ import {
   readGameJson,
   publicTurn,
   commitOrReplay,
+  checkRoom,
+  errorBody,
 } from "../../../lib/server/game-http.mjs";
 
 const MAX_INPUT = 500;
@@ -153,6 +155,9 @@ export async function POST(request) {
       throw new GameHttpError(409, say("gameOver", game.revision));
     }
 
+    // 차단(휴면 만료·관리자)된 방은 질문을 받지 않는다 (410 + 속마음 + closed)
+    await checkRoom(db, game);
+
     if (game.remaining <= 0) {
       throw new GameHttpError(409, say("noQuestionsLeft", game.revision));
     }
@@ -278,7 +283,7 @@ export async function POST(request) {
     return json(replay ?? response);
   } catch (error) {
     if (error instanceof GameHttpError) {
-      return json({ error: error.message }, error.status);
+      return json(errorBody(error), error.status);
     }
 
     // 기술적인 원인은 로그에만 남기고 화면에는 속마음만 보낸다

@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useGame } from "@/lib/api/useGame";
 import { GameScreen } from "@/components/game/GameScreen";
 import { Report } from "@/components/Report";
@@ -25,5 +26,39 @@ export default function PlayPage() {
     );
 
   if (view.report) return <Report view={view} onNewGame={actions.reset} />;
+  if (view.closed) return <ClosedRoom message={view.closed} onNewGame={actions.reset} />;
   return <GameScreen view={view} actions={actions} />;
+}
+
+/** 차단(휴면 만료·관리자)된 방: 이어하기 없이 새 수사만 시작할 수 있다. */
+function ClosedRoom({ message, onNewGame }: { message: string; onNewGame: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <main className="screen center">
+      <SceneBackdrop />
+      <div className="px window lobby" role="status">
+        <span className="px-tag">탐정</span>
+        <p className="say">{message}</p>
+        {error && <p className="warn" role="alert">{error}</p>}
+        <button
+          className="px-btn on block"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onNewGame();
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          새 수사 시작
+        </button>
+      </div>
+    </main>
+  );
 }

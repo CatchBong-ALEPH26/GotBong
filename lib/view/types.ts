@@ -122,4 +122,6 @@ export type GameView = {
   notes: Note[];
   contradictions: Contradiction[];
   report: ReportView | null;
+  /** 차단(휴면 만료·관리자)된 방이면 탐정 속마음 안내. 새 게임만 할 수 있다 */
+  closed?: string | null;
 };

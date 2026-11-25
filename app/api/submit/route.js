@@ -19,6 +19,8 @@ import {
   getGameId,
   readGameJson,
   commitOrReplay,
+  checkRoom,
+  errorBody,
 } from "../../../lib/server/game-http.mjs";
 import { say } from "../../../lib/game/data/thoughts.mjs";
 
@@ -94,6 +96,9 @@ export async function POST(request) {
       throw new GameHttpError(409, say("gameOver", game.revision));
     }
 
+    // 차단(휴면 만료·관리자)된 방은 제출을 받지 않는다
+    await checkRoom(db, game);
+
     // 4. 범인이 맞을 때만 동기를 채점한다.
     const roleId = roleOf(game.cast, npc);
     let match = false;
@@ -145,10 +150,7 @@ export async function POST(request) {
   } catch (error) {
     // 입력 오류, 세션 오류, 중복 요청 등
     if (error instanceof GameHttpError) {
-      return json(
-        { error: error.message },
-        error.status
-      );
+      return json(errorBody(error), error.status);
     }
 
     // AI 모델 호출 실패

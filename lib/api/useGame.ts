@@ -23,6 +23,8 @@ export type Session = {
   maxQuestions: number;
   turns: ServerTurn[];
   result: ServerResult | null;
+  /** 차단된 방이면 { reason, message } (선택 필드) */
+  closed?: { reason: "expired" | "admin"; message: string };
 };
 
 type Local = {
@@ -55,7 +57,8 @@ export type GameActions = {
 
 /** 화면에 보여 줄 수 있는 오류 (서버의 error 문장 그대로). */
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** closed: 방이 차단돼 새 게임만 가능할 때 서버가 알려 주는 이유 */
+  constructor(public status: number, message: string, public closed?: "expired" | "admin") {
     super(message);
   }
 }
@@ -73,7 +76,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
     throw new ApiError(0, "연락이 닿지 않는다. 연결 상태를 확인하고 다시 해 보자.");
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "잠깐 정신이 멍했다. 조금 뒤에 다시 해 보자." : "뭔가 어긋났다. 다시 해 보자."));
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "잠깐 정신이 멍했다. 조금 뒤에 다시 해 보자." : "뭔가 어긋났다. 다시 해 보자."), data?.closed);
   // 성공 응답인데 JSON 객체가 아니면(HTML 오류 페이지 등) 성공으로 다루지 않는다.
   if (!data || typeof data !== "object") throw new ApiError(res.status, "무슨 말인지 알아듣지 못했다. 잠시 뒤에 다시 해 보자.");
   return data as T;
@@ -192,6 +195,15 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     });
   }, []);
 
+  /** 방이 차단됐다는 응답이면 화면을 "새 게임만 가능" 상태로 바꾸고 오류는 그대로 넘긴다 */
+  const markClosed = useCallback((e: unknown): never => {
+    if (e instanceof ApiError && e.closed) {
+      const closed = { reason: e.closed, message: e.message };
+      setSession((s) => s && { ...s, closed });
+    }
+    throw e;
+  }, []);
+
   const requestId = (fingerprint: string) => {
     let id = pending.current.get(fingerprint);
     if (!id) pending.current.set(fingerprint, (id = uid()));
@@ -218,6 +230,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const r = session.result;
     const evidence = [...clues, ...said];
     return {
+      closed: session.result ? null : session.closed?.message ?? null,
       mode: session.mode,
       config: { generalQuestions: session.maxQuestions, questionMaxLength: 500 },
       scenario,
@@ -279,7 +292,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const q = question.trim() || "이것 좀 보세요.";
     const fingerprint = JSON.stringify(["q", suspectId, q, clueId]);
     const body = { npc: suspectId, question: q, attach, requestId: requestId(fingerprint) };
-    const r = await api<{ status: "accepted" | "clarify" | "rejected"; turn?: ServerTurn; message?: string; remaining: number; used?: number; thought?: string }>("/api/question", body);
+    const r = await api<{ status: "accepted" | "clarify" | "rejected"; turn?: ServerTurn; message?: string; remaining: number; used?: number; thought?: string }>("/api/question", body).catch(markClosed);
     pending.current.delete(fingerprint);
     if (r.status !== "accepted" || !r.turn) {
       setSession((s) => s && { ...s, remaining: r.remaining });
@@ -288,18 +301,18 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const turn = r.turn;
     setSession((s) => s && { ...s, remaining: r.remaining, turns: s.turns.some((t) => t.id === turn.id) ? s.turns : [...s.turns, turn] });
     return { type: "answer", message: toMessage(turn, sessionRef.current?.turns.length ?? 0), used: r.used, thought: r.thought };
-  }, []);
+  }, [markClosed]);
 
   const accuse = useCallback(
     async (a: Accusation) => {
       update((l) => ({ ...l, mine: a }));
       const fingerprint = JSON.stringify(["s", a.suspectId, a.motive]);
-      const r = await api<{ result: ServerResult }>("/api/submit", { npc: a.suspectId, motive: a.motive, requestId: requestId(fingerprint) });
+      const r = await api<{ result: ServerResult }>("/api/submit", { npc: a.suspectId, motive: a.motive, requestId: requestId(fingerprint) }).catch(markClosed);
       pending.current.delete(fingerprint);
       setSession((s) => s && { ...s, result: r.result });
       return r.result.score === 1 ? "win" : "lose";
     },
-    [update],
+    [update, markClosed],
   );
 
   const reset = useCallback(async () => {

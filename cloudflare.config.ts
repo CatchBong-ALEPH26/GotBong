@@ -17,7 +17,8 @@ export default defineConfig({
         name: "gotbong-dev",
         id: "215068c4-cd09-4933-9f86-460b937a13b5",
       }),
-      // 새 게임 생성 속도 제한: IP당 1분에 10번 (/api/session 첫 접속, /api/reset)
+      // 새 게임 생성 속도 제한 바인딩. 2026-11-25부터 코드에서 호출하지 않는다 (학원 IP 허용 목록 + 진행 중 방 수 제한으로 대체).
+      // 외부 공개 때 느슨한 제한으로 다시 쓸 수 있게 선언만 남겨 둔다 (제거는 배포 담당과 합의).
       GAME_CREATE_LIMITER: bindings.rateLimit({
         namespace: "1001",
         simple: { limit: 10, period: 60 },

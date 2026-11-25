@@ -67,32 +67,39 @@ function start(t) {
   const realFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = realFetch; });
 
-  let cookie;
+  // 쿠키 저장소: game(방), player(플레이어 번호). 지우면 다른 브라우저·다른 사람처럼 동작한다
+  const jar = {};
+  const cookieHeader = () => Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ');
   async function request(route, body) {
     const response = await routes[route](new Request('https://gotbong.test/api/' + route, {
       method: body ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(Object.keys(jar).length ? { Cookie: cookieHeader() } : {}) },
       body: body ? JSON.stringify(body) : undefined
     }));
-    cookie = response.headers.get('set-cookie')?.split(';')[0] ?? cookie;
+    for (const c of response.headers.getSetCookie()) {
+      const [k, v] = c.split(';')[0].split('=');
+      jar[k] = v;
+    }
     return { code: response.status, data: await response.json(), headers: response.headers };
   }
   // 무작위 배정을 테스트용 고정 배정으로 바꾼다
   function fixCast() {
     db.sql.prepare('UPDATE games SET cast = ?, victim = ? WHERE id = ?')
-      .run(JSON.stringify(CAST), '곽도현', cookie.split('=')[1]);
+      .run(JSON.stringify(CAST), '곽도현', jar.game);
   }
-  const unlocked = role => JSON.parse(db.sql.prepare('SELECT state FROM games WHERE id = ?').get(cookie.split('=')[1]).state)[role].unlocked;
+  const unlocked = role => JSON.parse(db.sql.prepare('SELECT state FROM games WHERE id = ?').get(jar.game).state)[role].unlocked;
   let n = 0;
   const ask = (npc, question, attach) => request('question', { npc, question, attach, requestId: 'req-' + String(n++).padStart(4, '0') });
-  return { db, request, ask, fixCast, unlocked };
+  return { db, request, ask, fixCast, unlocked, jar };
 }
 
 test('세션: 쿠키 발급, 사람 ID만 노출, 실명·피해자 치환, 사실 태그 비노출', async t => {
   const { request, ask, fixCast } = start(t);
   const first = await request('session');
   assert.equal(first.code, 200);
-  assert.match(first.headers.get('set-cookie'), /^game=[a-f0-9-]{36}; HttpOnly; SameSite=Strict; Path=\/; Max-Age=2592000; Secure$/);
+  const [gameSet, playerSet] = first.headers.getSetCookie();
+  assert.match(gameSet, /^game=[a-f0-9-]{36}; HttpOnly; SameSite=Strict; Path=\/; Max-Age=2592000; Secure$/);
+  assert.match(playerSet, /^player=[a-f0-9-]{36}; HttpOnly; SameSite=Strict; Path=\/; Max-Age=31536000; Secure$/);
   assert.equal(first.headers.get('cache-control'), 'no-store');
   fixCast();
 
@@ -262,15 +269,132 @@ test('조사: 빌드 기록은 범인 자리 모니터에서만, 서버가 판�
   assert.equal((await request('investigate', { spot: 42 })).code, 400);
 });
 
-test('새 게임 생성 속도 제한: 한도를 넘으면 429, 게임을 만들지 않는다', async t => {
-  const { db, request } = start(t);
-  let calls = 0;
-  env.GAME_CREATE_LIMITER = { limit: async ({ key }) => ({ success: ++calls <= 1 && typeof key === 'string' }) };
+test('방 수 제한: 사람당 진행 중 2개, 서비스 전체 MAX_ACTIVE_ROOMS, 휴면 방은 세지 않는다', async t => {
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const { db, request, jar } = start(t);
+  env.MAX_ACTIVE_ROOMS = '3';
+  // 분당 생성 제한은 더 이상 쓰지 않는다 (바인딩이 있어도 호출하지 않음)
+  env.GAME_CREATE_LIMITER = { limit: async () => { throw new Error('호출되면 안 됨'); } };
+  const status = id => db.sql.prepare('SELECT status FROM games WHERE id = ?').get(id).status;
+  const active = () => db.sql.prepare("SELECT COUNT(*) AS n FROM games WHERE status = 'active'").get().n;
+
   assert.equal((await request('session')).code, 200);
-  const blocked = await request('reset', {});
-  assert.equal(blocked.code, 429);
-  assert.equal(blocked.headers.get('set-cookie'), null);
-  assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM games').get().n, 1);
+  const first = jar.game;
+  // 새 게임: 지금 방은 종료, 새 방은 진행 중 (연속으로 여러 번 눌러도 진행 중 방은 하나)
+  for (let i = 0; i < 4; i++) assert.equal((await request('reset', {})).code, 200);
+  assert.equal(status(first), 'ended');
+  assert.equal(active(), 1);
+  // 게임 쿠키를 잃어도 같은 플레이어 번호로 2개까지
+  delete jar.game;
+  assert.equal((await request('session')).code, 200);
+  delete jar.game;
+  const third = await request('session');
+  assert.equal(third.code, 429);
+  assert.ok(thoughts.playerRoomsFull.includes(third.data.error), third.data.error);
+  assert.equal(third.headers.get('set-cookie'), null, '방을 만들지 못하면 쿠키를 바꾸지 않는다');
+
+  // 다른 사람: 전체 3개까지
+  for (const k of Object.keys(jar)) delete jar[k];
+  assert.equal((await request('session')).code, 200);
+  const crowd = jar.game;
+  for (const k of Object.keys(jar)) delete jar[k];
+  const full = await request('session');
+  assert.equal(full.code, 503);
+  assert.ok(thoughts.roomsFull.includes(full.data.error), full.data.error);
+
+  // 15분 넘게 쉰 방은 세지 않는다 → 다시 만들 수 있다
+  db.sql.prepare('UPDATE games SET last_active_at = ? WHERE id = ?').run(Date.now() - 16 * 60 * 1000, crowd);
+  for (const k of Object.keys(jar)) delete jar[k];
+  assert.equal((await request('session')).code, 200);
+  assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM games').get().n, 8, '방 기록은 지우지 않는다');
+});
+
+test('휴면 만료: 15분 무응답이면 그 자리에서 차단(만료) 기록, 질문·제출 거절, 새 게임만 가능', async t => {
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const { db, request, ask, fixCast, jar } = start(t);
+  await request('session');
+  fixCast();
+  await ask('kim', '쉬는 시간에 어디 계셨어요?');
+  const old = jar.game;
+  const row = () => db.sql.prepare('SELECT status, blocked_at, block_reason, last_active_at FROM games WHERE id = ?').get(old);
+
+  db.sql.prepare('UPDATE games SET last_active_at = ? WHERE id = ?').run(Date.now() - 16 * 60 * 1000, old);
+  const q = await ask('kim', '그다음엔요?');
+  assert.equal(q.code, 410);
+  assert.equal(q.data.closed, 'expired');
+  assert.ok(thoughts.expired.includes(q.data.error), q.data.error);
+  assert.equal(row().status, 'blocked_expired');
+  assert.equal(row().block_reason, 'idle');
+  assert.ok(row().blocked_at > 0);
+  assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM turns WHERE game_id = ?').get(old).n, 1, '대화 기록은 남는다');
+
+  const sub = await request('submit', { npc: 'hwanggh', motive: '놀림에 대한 복수', requestId: 'expired-0001' });
+  assert.equal(sub.code, 410);
+  const snap = await request('session');
+  assert.equal(snap.code, 200);
+  assert.equal(snap.data.closed.reason, 'expired');
+  assert.equal(snap.data.turns.length, 1, '차단돼도 기록은 보여 준다');
+  assert.equal((await request('investigate', { spot: 'desk' })).code, 410);
+
+  const fresh = await request('reset', {});
+  assert.equal(fresh.code, 200);
+  assert.notEqual(jar.game, old);
+  assert.equal(row().status, 'blocked_expired', '차단된 방은 종료로 덮어쓰지 않는다');
+  assert.equal((await request('session')).data.closed, undefined);
+
+  // 관리자 차단
+  db.sql.prepare("UPDATE games SET status = 'blocked_admin', blocked_at = ?, block_reason = 'admin' WHERE id = ?").run(Date.now(), jar.game);
+  fixCast();
+  const admin = await ask('kim', '쉬는 시간에 어디 계셨어요?');
+  assert.equal(admin.code, 410);
+  assert.equal(admin.data.closed, 'admin');
+  assert.ok(thoughts.blockedAdmin.includes(admin.data.error));
+});
+
+test('마지막 활동 시각: 저장할 때 함께 갱신, 조회는 1분 간격으로만 쓴다, 제출하면 종료', async t => {
+  const { db, request, ask, fixCast, jar } = start(t);
+  await request('session');
+  fixCast();
+  const at = () => db.sql.prepare('SELECT last_active_at AS t, status FROM games WHERE id = ?').get(jar.game);
+  const set = ms => db.sql.prepare('UPDATE games SET last_active_at = ? WHERE id = ?').run(ms, jar.game);
+
+  const recent = Date.now() - 30 * 1000;
+  set(recent);
+  await request('session');
+  assert.equal(at().t, recent, '1분이 안 지났으면 조회만으로는 쓰지 않는다');
+  set(Date.now() - 90 * 1000);
+  await request('session');
+  assert.ok(Date.now() - at().t < 5000, '1분이 지났으면 갱신');
+
+  set(recent);
+  await ask('kim', '/모호');
+  assert.ok(at().t > recent, '되묻기도 저장 때 갱신');
+  await request('submit', { npc: 'hwanggh', motive: '놀림에 대한 복수', requestId: 'ended-0001' });
+  assert.equal(at().status, 'ended');
+});
+
+test('접속 IP 허용 목록: 비어 있으면 제한 없음, 정확한 IP·IPv4 CIDR, API는 JSON 403', async () => {
+  const { guardRequest, ipAllowed, parseAllowList } = await import('../lib/server/access.mjs');
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const req = (ip, path = '/api/session') => new Request('https://gotbong.test' + path, { headers: ip ? { 'cf-connecting-ip': ip } : {} });
+  assert.equal(guardRequest(req('198.51.100.9'), {}), null);
+  assert.equal(guardRequest(req('198.51.100.9'), { ALLOWED_IPS: ' ' }), null);
+  const list = parseAllowList('203.0.113.7, 198.51.100.0/24, 2001:db8::1');
+  assert.ok(ipAllowed('203.0.113.7', list));
+  assert.ok(ipAllowed('198.51.100.200', list));
+  assert.ok(ipAllowed('2001:DB8::1', list));
+  assert.ok(!ipAllowed('198.51.101.1', list));
+  assert.ok(!ipAllowed('203.0.113.70', list));
+  assert.ok(ipAllowed('10.1.2.3', parseAllowList('0.0.0.0/0')));
+  assert.ok(!ipAllowed(null, list));
+  const env2 = { ALLOWED_IPS: '203.0.113.7' };
+  assert.equal(guardRequest(req('203.0.113.7'), env2), null);
+  const api = guardRequest(req('192.0.2.1'), env2);
+  assert.equal(api.status, 403);
+  assert.ok(thoughts.ipBlocked.includes((await api.json()).error));
+  const page = guardRequest(req(null, '/play'), env2);
+  assert.equal(page.status, 403);
+  assert.match(page.headers.get('content-type'), /text\/html/);
 });
 
 test('빈 게임 정리: 오래되고 질문·요청·제출이 모두 없는 게임만 지운다', async t => {
