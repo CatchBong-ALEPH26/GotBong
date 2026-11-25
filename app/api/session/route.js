@@ -10,6 +10,7 @@ import {
   errorBody,
   getGameId,
   getPlayerId,
+  ipKey,
   publicGameKey,
   publicTurn,
   closedInfo,
@@ -41,7 +42,7 @@ export async function GET(request) {
       game = await checkRoom(db, game, { now, touch: true, allowClosed: true });
     } else {
       // 3. 기존 게임이 없으면 새 방 (사람당·전체 진행 중 방 수 제한)
-      game = await openRoom(db, env, { player, now });
+      game = await openRoom(db, env, { player, ipHash: await ipKey(request), now });
       newGameCreated = true;
     }
 

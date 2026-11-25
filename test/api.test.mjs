@@ -319,6 +319,35 @@ test('방 수 제한: 사람당 진행 중 2개, 서비스 전체 MAX_ACTIVE_ROO
   assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM games').get().n, 8, '방 기록은 지우지 않는다');
 });
 
+test('같은 접속 IP당 진행 중 방 7개: 다른 IP·IP 없는 요청은 따로, IP 원문은 저장하지 않음', async t => {
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const { db } = start(t);
+  // 매번 새 사람(쿠키 없음)으로, 지정한 IP에서 첫 접속
+  const visit = async ip => {
+    const response = await routes.session(new Request('https://gotbong.test/api/session', { headers: ip ? { 'cf-connecting-ip': ip } : {} }));
+    return { code: response.status, data: await response.json(), cookies: response.headers.getSetCookie() };
+  };
+  for (let i = 0; i < 7; i++) assert.equal((await visit('203.0.113.7')).code, 200, `같은 IP ${i + 1}번째`);
+  const eighth = await visit('203.0.113.7');
+  assert.equal(eighth.code, 429);
+  assert.equal(eighth.data.code, 'ip_rooms_full');
+  assert.ok(thoughts.ipRoomsFull.includes(eighth.data.error), eighth.data.error);
+  assert.deepEqual(eighth.cookies.map(c => c.split('=')[0]), ['player'], '방을 못 만들면 게임 쿠키는 없음');
+
+  // 다른 IP, IP를 알 수 없는 요청(로컬 개발)은 따로 센다
+  assert.equal((await visit('198.51.100.9')).code, 200);
+  assert.equal((await visit(null)).code, 200);
+
+  // 15분 넘게 쉰 방은 세지 않는다 → 같은 IP에서 다시 만들 수 있다
+  const oldest = db.sql.prepare("SELECT id FROM games WHERE ip_hash IS NOT NULL ORDER BY created_at LIMIT 1").get().id;
+  db.sql.prepare('UPDATE games SET last_active_at = ? WHERE id = ?').run(Date.now() - 16 * 60 * 1000, oldest);
+  assert.equal((await visit('203.0.113.7')).code, 200);
+
+  const stored = db.sql.prepare('SELECT ip_hash FROM games').all().map(r => r.ip_hash);
+  assert.ok(stored.every(h => h === null || /^[0-9a-f]{32}$/.test(h)), '해시만 저장');
+  assert.ok(!JSON.stringify(stored).includes('203.0.113.7'), 'IP 원문은 저장하지 않는다');
+});
+
 test('휴면 만료: 15분 무응답이면 그 자리에서 차단(만료) 기록, 질문·제출 거절, 새 게임만 가능', async t => {
   const { thoughts } = await import('../lib/game/data/thoughts.mjs');
   const { db, request, ask, fixCast, jar } = start(t);

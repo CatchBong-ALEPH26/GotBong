@@ -39,7 +39,7 @@ npm run dev:ai                                 # GOTBONG_LOCAL_AI=1 로 비밀 �
 - 연결 안내와 팀 결정 사항: `docs/game/INTEGRATION.md` (Node 서버 시절 기록)
 - 서버 쪽: `app/api/{session,question,submit,reset,investigate}/route.js` (진입점 `worker/index.js`: IP 허용 목록) → `lib/server/`(D1·HTTP 공통·방 관리) · `lib/game/`(배정·상태 기계·해금 점수·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인: 해금 판정 → 메인 모델 1회 → 답변 검증)
 - 해금 판정·질문 차감·속마음·방 관리 규칙: [`docs/game/AI_REDESIGN_DECISIONS.md`](docs/game/AI_REDESIGN_DECISIONS.md)
-- 방: 사람당 진행 중 2개, 전체 30개, 마지막 요청 후 15분이면 만료(기록은 남고 새 수사만 가능). 접속 IP 제한은 Cloudflare 변수 `ALLOWED_IPS`(비면 제한 없음)
+- 방: 사람당 진행 중 2개, 같은 접속 IP당 7개(한 공인 IP를 쓰는 곳에서 동시에 플레이할 PC 수), 전체 30개, 마지막 요청 후 15분이면 만료(기록은 남고 새 수사만 가능). 접속 IP 자체를 막는 `ALLOWED_IPS`는 운영에서 비워 둠(비면 제한 없음)
 
 ## 파일
 | 영역 | 파일 |

@@ -10,6 +10,7 @@ import {
   errorBody,
   getGameId,
   getPlayerId,
+  ipKey,
   publicGameKey,
   readGameJson,
   gameCookie,
@@ -35,7 +36,7 @@ export async function POST(request) {
 
 
     // 1. 새 방 생성 (지금 방은 세지 않고, 만들어지면 종료로)
-    const game = await openRoom(db, env, { player, replacing: getGameId(request) });
+    const game = await openRoom(db, env, { player, ipHash: await ipKey(request), replacing: getGameId(request) });
 
     // 2. 기존 /api/session과 동일한 응답 형식
     // 역할 배정과 내부 상태는 브라우저에 노출하지 않는다.
