@@ -62,7 +62,7 @@ function tone(freq: number, start: number, dur: number, opts: { type?: Oscillato
 const N = (semi: number) => 440 * 2 ** (semi / 12); // A4 기준 반음
 
 const SFX_VOL = 0.5;
-const BGM_VOL = 0.3;
+const BGM_VOL = 0.15;
 const SFX_FILES: Partial<Record<Sfx, string>> = {
   open: "/audio/sfx/sfx_click.ogg",
   found: "/audio/sfx/sfx_evidence_unlock.ogg",
