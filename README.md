@@ -10,6 +10,15 @@ npm run db:migrate:local      # 처음 한 번: 로컬 D1(.cloudflare/state)에 
 npm run dev                   # http://localhost:3000 → 사건 시작
 npm test                      # 게임 규칙 + API 계약 테스트 (실제 AI·Cloudflare 호출 없음)
 ```
+
+### 로컬 Worker에서 실제 AI 키 쓰기 (유료 호출, 팀 합의 후)
+로컬 개발 런타임은 Worker 설정에 **선언된 비밀 값만** `.dev.vars`에서 채운다. 그래서 키 파일만 두고 `npm run dev`를 하면 테스트 모드 그대로다.
+```powershell
+Set-Content .dev.vars "OPENAI_API_KEY=<키>"   # .dev.vars 는 Git 제외. 채팅·문서·커밋에 키를 쓰지 않는다
+npm run dev:ai                                 # GOTBONG_LOCAL_AI=1 로 비밀 값을 선언하고 개발 서버 실행
+```
+오른쪽 위 "테스트 모드" 표시가 사라지고 `/api/session`의 `mode`가 `openai`면 연결된 것이다. 평소 `npm run dev`·빌드·배포에는 선언이 들어가지 않는다(`cloudflare.config.ts`).
+해금 판정만 따로 재 보려면 `.env`에 같은 키를 두고 `node --env-file=.env scripts/judge-probe.mjs --max-calls=20` (결과: `docs/game/eval/judge-probe-*.md`).
 키가 없으면 오른쪽 위에 "테스트 모드"가 뜨고 고정 응답(Fixture)이 온다. 배포·운영 D1·AI 키 정책은 [`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md).
 
 ## 조작
@@ -17,7 +26,7 @@ npm test                      # 게임 규칙 + API 계약 테스트 (실제 AI�
 |---|---|
 | 사건 소개 → 수사 시작 | 짧은 유령 연출(건너뛰기 가능). 시간 제한 없음 |
 | 장면의 물건 누르기 | 조사(질문 소모 없음). 표시는 없다. 서버 단서 카드 5장을 장면에서 찾는다 |
-| 사람 누르기 | 그 사람이 가운데 서고 질문 입력(최대 500자). 증거 내밀기: 단서 카드 또는 **다른 사람의 말** |
+| 사람 누르기 | 그 사람이 가운데 서고 질문 입력(최대 500자). 한 번에 3개까지 묻고, 물은 개수만큼 남은 질문이 준다(4개 이상·남은 횟수 초과는 차감 없이 다시 묻기). 증거 내밀기: 단서 카드 또는 **다른 사람의 말**. 같은 실수를 3번 하면 탐정의 속마음 힌트가 한 번 나온다 |
 | 단서 n/5 (위쪽) | 찾은 현장 단서 수. 누르면 "어디를 볼지" 혼잣말 힌트(같은 단서를 다시 누르면 더 구체적으로). 오래 막히면 반짝이고, 100초가 지나면 힌트가 저절로 나온다 |
 | 소리 버튼 (위쪽 끝) | 효과음·배경음 켜고 끄기. 처음엔 꺼져 있고 이 브라우저에 기억한다. 소리는 파일 없이 `lib/audio/sound.ts`에서 만든다 |
 | **수첩** (N) | 단서 노트 / 대상별 기록 / 사건 순서 / 최종 추리(범인 + 동기 자유 서술, 1회 제출) |
@@ -28,7 +37,9 @@ npm test                      # 게임 규칙 + API 계약 테스트 (실제 AI�
 - `lib/scene/classroom.ts` — 장면 좌표, 어디를 누르면 어느 단서 카드가 나오는지(화면 담당). 역할 기준 정보는 없다.
 - 장면에서 찾은 단서, 밑줄, 연필 선, 내가 낸 답은 브라우저 `localStorage`에만 둔다(서버 판정과 무관).
 - 연결 안내와 팀 결정 사항: `docs/game/INTEGRATION.md` (Node 서버 시절 기록)
-- 서버 쪽: `app/api/{session,question,submit,reset,investigate}/route.js` (진입점 `worker/index.js`) → `lib/server/`(D1·HTTP 공통) · `lib/game/`(배정·상태 기계·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인)
+- 서버 쪽: `app/api/{session,question,submit,reset,investigate}/route.js` (진입점 `worker/index.js`: IP 허용 목록) → `lib/server/`(D1·HTTP 공통·방 관리) · `lib/game/`(배정·상태 기계·해금 점수·시나리오 `data/`) · `lib/ai/`(Fixture/OpenAI/Gemini, 질문 파이프라인: 해금 판정 → 메인 모델 1회 → 답변 검증)
+- 해금 판정·질문 차감·속마음·방 관리 규칙: [`docs/game/AI_REDESIGN_DECISIONS.md`](docs/game/AI_REDESIGN_DECISIONS.md)
+- 방: 사람당 진행 중 2개, 전체 30개, 마지막 요청 후 15분이면 만료(기록은 남고 새 수사만 가능). 접속 IP 제한은 Cloudflare 변수 `ALLOWED_IPS`(비면 제한 없음)
 
 ## 파일
 | 영역 | 파일 |
