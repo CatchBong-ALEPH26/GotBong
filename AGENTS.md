@@ -58,7 +58,7 @@
 
 ## 5. 아직 검증되지 않은 것 (완료로 가정하지 않는다)
 
-- 운영 환경의 실제 OpenAI·Gemini 호출(비용, 시간 제한). 현재 운영은 Fixture 모드. 로컬 Worker에서 OpenAI 호출은 확인함(`npm run dev:ai`, `AI_REDESIGN_DECISIONS.md` 12.5~12.6). Gemini 구조화 출력은 미확인.
+- 운영의 실제 모델 비용·시간 제한·동시 접속 부하. 2026-11-25부터 운영은 OpenAI 모드(Secret 등록, 월 한도 미설정), 운영에서 질문 2개 정상 답변만 확인. 로컬 Worker에서 OpenAI 호출은 확인함(`npm run dev:ai`, `AI_REDESIGN_DECISIONS.md` 12.5~12.6). Gemini 구조화 출력은 미확인.
 - 해금 판정 정확도는 평가 세트 17개로만 확인(오해금 1건 경계 사례). 배정·NPC별 확대 평가 필요.
 - 방 수 제한·15분 만료·IP 허용 목록의 운영 D1·workers.dev 동작(로컬 대역 테스트만).
 - 질문 API 동시 경합 시 409 대신 500이 나올 가능성.

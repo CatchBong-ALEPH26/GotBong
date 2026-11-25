@@ -1,7 +1,7 @@
 # GotBong — Cloudflare 배포 및 팀 개발 가이드
 
 > 문서 기준일: 2026-11-25
-> 현재 공개 버전: **Fixture 테스트 모드** (OpenAI·Gemini API 키 미등록)
+> 현재 공개 버전: **OpenAI 실제 모델** (2026-11-25 `OPENAI_API_KEY` Secret 등록, 월 사용 한도 미설정) + **접속 IP 허용 목록 적용**(`ALLOWED_IPS` Secret)
 > 배포 주소: <https://gotbong.aleph26.workers.dev/>
 > 저장소: <https://github.com/CatchBong-ALEPH26/GotBong>
 
@@ -16,7 +16,7 @@ GotBong은 **Cloudflare 중심 단일 구조**입니다. 로컬 개발도 운영
 | 속도 제한 | 바인딩 없음 → 제한 안 함 | `GAME_CREATE_LIMITER`: 새 게임 생성 IP당 1분 10번 |
 | 예약 작업 | `/cdn-cgi/local/explorer/api/local/scheduled?worker=gotbong` (POST, `{"cron":"0 4 * * *"}`)로 직접 실행 | 매일 04:00 UTC, 7일 지난 빈 게임 정리 (`worker/index.js`) |
 | 데이터 | 로컬 D1 시뮬레이션 (`.cloudflare/state`, Git 제외) | Cloudflare D1 `gotbong-dev` |
-| 모델 | API 키 없으면 Fixture | 현재 Fixture (실제 모델 호출 미검증) |
+| 모델 | API 키 없으면 Fixture | OpenAI (메인 gpt-4.1, 빠른 모델 gpt-4.1-mini) |
 
 **중요:** Cloudflare에 배포된다고 해서 GitHub 저장소가 자동 갱신되지는 않습니다. 반대로 GitHub에 코드를 푸시하더라도 현재 수동 배포 방식에서는 Cloudflare에 자동 반영된다고 가정하지 마세요.
 
@@ -114,14 +114,18 @@ D1 마이그레이션 파일:
 
 ## 6. 환경변수와 AI 모델
 
-**현재 운영 상태:** 실제 AI API 키 미등록 → Fixture 모드. 이 상태에서도 게임 생성, NPC 대화, 추리 제출, 새 게임을 테스트할 수 있습니다.
+**현재 운영 상태 (2026-11-25):** Worker Secrets에 `OPENAI_API_KEY`, `ALLOWED_IPS`를 등록했습니다(`cf workers secrets update <이름> --worker gotbong --type secret_text`, 값은 저장소에 쓰지 않음). `cf deploy`는 기존 Secrets를 유지하므로(`keepSecrets`) 다시 배포해도 지워지지 않습니다. 운영에서 질문 2개로 실제 답변(한 번에 5~6초)을, 허용 목록 밖 IP에서 403을 확인했습니다.
+
+- **비용 주의:** 질문 한 번에 OpenAI 호출 2~3회(판정·답변·검증). 키의 월 사용 한도는 아직 설정하지 않았으니 OpenAI 결제 설정에서 정하세요.
+- **허용 IP 바꾸기:** 같은 명령으로 `ALLOWED_IPS`를 쉼표 구분 목록으로 다시 등록합니다. 지금은 등록 시점의 접속 IP 1개만 허용하므로, 다른 곳의 팀원은 403을 받습니다. 제한을 풀려면 `cf workers secrets delete`로 지웁니다(비면 제한 없음).
+- **Fixture로 되돌리기:** `OPENAI_API_KEY` Secret을 지우면 다음 요청부터 Fixture 모드입니다.
 
 - `app/api/session/route.js`: 선택된 AI `mode` 응답
 - `app/api/question/route.js`: `modelFromEnv(env)`로 모델 선택
 - `app/api/submit/route.js`: 정답 용의자의 범행 동기 채점 시 모델 선택
 - `app/api/reset/route.js`: 선택된 AI `mode` 응답
 
-향후 실제 OpenAI·Gemini를 사용할 때에는 API 키를 **Cloudflare Secrets**로 등록하고, 키 권한·요금·모델 선택·Workers 런타임 호환성을 별도로 검증해야 합니다. `.env` 파일이나 `cloudflare.config.ts`, GitHub 코드에 실제 키를 직접 넣지 않습니다. **실제 모델 호출은 아직 검증되지 않았습니다.**
+향후 실제 OpenAI·Gemini를 사용할 때에는 API 키를 **Cloudflare Secrets**로 등록하고, 키 권한·요금·모델 선택·Workers 런타임 호환성을 별도로 검증해야 합니다. `.env` 파일이나 `cloudflare.config.ts`, GitHub 코드에 실제 키를 직접 넣지 않습니다. Gemini 경로는 운영에서 검증하지 않았습니다.
 
 ## 7. 배포 확인 체크리스트
 
@@ -157,7 +161,8 @@ git diff --cached --check
 | 로컬에서 `/api/session`이 500 (`no such table`) | `npm.cmd run db:migrate:local`을 먼저 실행 |
 | Cloudflare에서 게임 생성 오류 | `env.DB` 바인딩, 팀 D1 선택 여부, 마이그레이션 적용 상태 점검 |
 | 다른 Cloudflare 계정으로 배포 시도 | 활성 프로필 `gotbong-team`, `CLOUDFLARE_ACCOUNT_ID` 확인 |
-| AI가 정형화된 답변만 반환 | 현재는 Fixture 모드이므로 정상적인 제한 사항 |
+| AI가 정형화된 답변만 반환 | Fixture 모드. `/api/session`의 `mode`와 `OPENAI_API_KEY` Secret 등록 여부 확인 |
+| 접속하면 403 안내만 보임 | `ALLOWED_IPS`에 지금 접속 IP가 없음. 목록을 고치거나 Secret을 지움 |
 | 빌드의 `SOURCEMAP_BROKEN` 경고 | 기존 빌드에서도 나타난 비치명적 경고이며, 오류와 구별하여 최종 `Build complete` 확인 |
 | `HTTP 502`로 모델 호출 실패 | 실제 AI 모델 설정 및 키/제공자 오류를 점검 (키 값은 공유하지 않음) |
 

@@ -1,8 +1,9 @@
 import { bindings, defineConfig, defineWorker, triggers } from "cf/config";
 
 // 로컬 Worker에서 실제 AI 키를 쓸 때만(npm run dev:ai) 비밀 값을 선언한다. 로컬 개발은 선언된 비밀 값만
-// .dev.vars 에서 채운다. 평소 개발·빌드·배포에서는 선언하지 않으므로 운영(테스트 모드)에 영향이 없다.
-// 운영에 키를 등록할 때는 팀 합의 후 Cloudflare Secrets 로 등록하고 이 선언을 항상 켜는 것을 검토한다.
+// .dev.vars 에서 채운다. 평소 개발(npm run dev)은 키 없이 Fixture 로 돈다.
+// 운영 Worker 의 OPENAI_API_KEY, ALLOWED_IPS 는 `cf workers secrets update` 로 등록했고(2026-11-25),
+// cf deploy 가 기존 Secrets 를 유지하므로 여기서 선언하지 않아도 운영 env 에 들어간다.
 const localAiSecrets =
   process.env.GOTBONG_LOCAL_AI === "1"
     ? { OPENAI_API_KEY: bindings.secret(), GEMINI_API_KEY: bindings.secret() }
