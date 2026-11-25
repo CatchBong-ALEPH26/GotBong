@@ -8,12 +8,15 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { modelFromEnv } from '../lib/ai/llm.mjs';
+import { budgeted } from '../lib/ai/budget.mjs';
 import { judgeMessage, runQuestion } from '../lib/ai/pipeline.mjs';
-import { initialState, templateVars, applyJudgement } from '../lib/game/game.mjs';
+import { initialState, templateVars, applyJudgement, attachEvidence } from '../lib/game/game.mjs';
 import { fill } from '../lib/game/josa.mjs';
 import { roles, clues } from '../lib/game/data/case.mjs';
 
-const { mode, model, mainModel, fastModel } = modelFromEnv(process.env, { maxWaitMs: 20000, maxRetries: 2 });
+const { mode, model: rawModel, mainModel, fastModel } = modelFromEnv(process.env, { maxWaitMs: 20000, maxRetries: 2 });
+// 모든 실제 호출은 예산 장부를 거친다 (장부 누적 상한 AI_CALL_BUDGET, 기본 60)
+const model = budgeted(rawModel, { label: 'judge-probe' });
 if (mode === 'fixture') {
   console.error('OPENAI_API_KEY 또는 GEMINI_API_KEY 가 필요합니다 (.env).');
   process.exit(1);
@@ -32,7 +35,8 @@ const say = (roleId, id) => f(roles[roleId].facts.find(x => x.id === id).say).re
 const turn = (roleId, id) => ({ type: 'turn', id: 't-' + id, npc: cast[roleId], reply: say(roleId, id), facts: [id] });
 // 서버(app/api/question)처럼 카드 제목과 내용을 함께 첨부한다
 const clue = id => { const c = clues.find(x => x.id === id); return { type: 'clue', id, title: f(c.title), detail: f(c.detail) }; };
-const unlockedWith = (roleId, ids) => ({ ...initialState(), [roleId]: { unlocked: [...initialState()[roleId].unlocked, ...ids], evidence: [] } });
+// evidence: 지난 대화에서 이 NPC에게 이미 보여 준 첨부 (서버는 state.evidence 에 누적한다)
+const unlockedWith = (roleId, ids, evidence = []) => ({ ...initialState(), [roleId]: { unlocked: [...initialState()[roleId].unlocked, ...ids], evidence } });
 
 // expect: 'unlock' | 'near' | 'none' (target 사실 기준), count: 기대 질문 수, unclear: 되묻기 기대
 const probes = [
@@ -54,12 +58,12 @@ const probes = [
   { name: '유도·근거 없음', role: 'D', target: 'd_receiver', expect: 'none-or-near',
     state: unlockedWith('D', ['d_cable_excuse']), q: '당신이 키보드 수신기를 {victim}님 컴퓨터 뒤에 꽂았죠?' },
   { name: '중요+누적 근거', role: 'D', target: 'd_receiver', expect: 'unlock', counts: [1, 2],
-    state: unlockedWith('D', ['d_cable_excuse']),
+    state: unlockedWith('D', ['d_cable_excuse'], ['clue:receiver']),
     history: [{ question: '이 수신기는 뭐예요?', reply: '저도 처음 보는데요.', attach: { type: 'clue', id: 'receiver', title: '낯선 수신기' } }],
     attach: turn('C', 'c_cable'),
     q: '{C}님은 케이블이 엉킨 적 없다는데요. 그럼 {victim}님 본체 뒤에서 뭘 하신 거예요? 아까 보여 드린 그 낯선 수신기, {D}님 키보드 수신기 아니에요?' },
   { name: '핵심+근거', role: 'D', target: 'd_delete', expect: 'unlock',
-    state: unlockedWith('D', ['d_cable_excuse', 'd_receiver']),
+    state: unlockedWith('D', ['d_cable_excuse', 'd_receiver'], ['cite:b_typing']),
     history: [{ question: '이 말은 어떻게 설명하실 거예요?', reply: '그냥 빌드 기다리고 있었어요.', attach: { type: 'turn', reply: say('B', 'b_typing') } }],
     attach: clue('trash', '사라진 프로그램'),
     q: '{B}님은 {D}님이 키보드를 무릎에 올리고 계속 뭘 치는 걸 봤대요. 그런데 이 휴지통 기록엔 룰렛 실행 파일이 그 시간에 지워졌어요. 자리에서 그 키보드로 {victim}님 룰렛을 끄고 파일을 지운 거죠?' },
@@ -98,7 +102,8 @@ for (const [i, p] of probes.entries()) {
   const started = Date.now();
   try {
     const judged = await judgeMessage({ call, game, roleId: p.role, question, attach: p.attach ?? null, history });
-    const applied = applyJudgement(p.role, game.state[p.role], judged.questions, { attached: !!p.attach, grounded: !!p.attach || history.length > 0 });
+    const evidence = attachEvidence(p.attach, p.attach?.facts);
+    const applied = applyJudgement(p.role, game.state[p.role], judged.questions, { evidence, attached: !!p.attach, grounded: !!p.attach || history.length > 0 });
     const hit = p.target ? applied.scored.find(s => s.target === p.target) : null;
     const outcome = applied.newly.length ? (applied.newly.includes(p.target) ? 'unlock' : 'wrong-unlock:' + applied.newly.join(','))
       : hit?.outcome === 'near' ? 'near' : 'none';

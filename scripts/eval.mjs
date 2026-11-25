@@ -12,6 +12,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { modelFromEnv } from '../lib/ai/llm.mjs';
+import { budgeted } from '../lib/ai/budget.mjs';
 import { runQuestion } from '../lib/ai/pipeline.mjs';
 import { initialState, factView, templateVars } from '../lib/game/game.mjs';
 import { fill } from '../lib/game/josa.mjs';
@@ -20,7 +21,9 @@ import { roleIds } from '../lib/game/data/case.mjs';
 import { characterBlock } from '../lib/ai/prompts.mjs';
 
 const env = process.env;
-const { mode, model, mainModel, fastModel } = modelFromEnv(env, { maxWaitMs: 70000, maxRetries: 6 });
+const { mode, model: rawModel, mainModel, fastModel } = modelFromEnv(env, { maxWaitMs: 70000, maxRetries: 6 });
+// 모든 실제 호출은 예산 장부를 거친다 (장부 누적 상한 AI_CALL_BUDGET, 기본 60)
+const model = budgeted(rawModel, { label: 'eval' });
 if (mode === 'fixture') {
   console.error('OPENAI_API_KEY 또는 GEMINI_API_KEY 가 필요합니다 (.env).');
   process.exit(1);

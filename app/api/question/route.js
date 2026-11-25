@@ -192,7 +192,7 @@ export async function POST(request) {
     // 7. 되묻기·반려·답변 검증 실패: 질문 횟수를 줄이지 않는다.
     //    단 차감 없는 응답이 이미 연속 3번이면 이번 응답은 1회 차감한다 (무한 반복 방지).
     const answered = answer.status === "answered" && answer.pass;
-    const charge = chargeFor({ answered, count: answer.count, free: game.tally.free ?? 0 });
+    const charge = chargeFor({ answered, count: answer.count, free: game.tally.free ?? 0, remaining: game.remaining });
     const remaining = game.remaining - charge.used;
     const tally = { ...game.tally, free: charge.free };
 
@@ -208,12 +208,14 @@ export async function POST(request) {
       const response = {
         status: answer.status === "clarify" ? "clarify" : "rejected",
         // 탐정 속마음 고정 문장. 차감 여부는 used 로 알려 준다 (화면이 한 줄로 표시)
+        // 연속 무차감 뒤 차감된 경우 "질문 한 번을 쓴 셈"이라는 속마음을 덧붙인다 (입력은 화면에 그대로 남는다)
         message:
-          answer.status === "clarify"
+          (answer.status === "clarify"
             ? say("unclear", game.revision)
             : answer.status === "rejected"
               ? rejectThought(answer.reason, game.remaining, game.revision)
-              : say("answerFailed", game.revision),
+              : say("answerFailed", game.revision)) +
+          (charge.forced ? " " + say("forcedCharge", game.revision) : ""),
         remaining,
         used: charge.used,
       };

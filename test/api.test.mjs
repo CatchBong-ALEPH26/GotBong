@@ -3,6 +3,13 @@
 // 실제 Cloudflare·AI 호출은 하지 않는다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+
+// 자동 테스트는 실제 AI를 한 번도 부르지 않는다 (Fixture·가짜 모델만). 실제 AI 주소로 나가려 하면 바로 실패시킨다.
+const guardedFetch = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => {
+  if (/api\.openai\.com|generativelanguage\.googleapis\.com/.test(String(url))) throw new Error('테스트에서 실제 AI 호출 금지: ' + url);
+  return guardedFetch(url, ...rest);
+};
 import { registerHooks } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -290,6 +297,7 @@ test('방 수 제한: 사람당 진행 중 2개, 서비스 전체 MAX_ACTIVE_ROO
   delete jar.game;
   const third = await request('session');
   assert.equal(third.code, 429);
+  assert.equal(third.data.code, 'player_rooms_full');
   assert.ok(thoughts.playerRoomsFull.includes(third.data.error), third.data.error);
   assert.equal(third.headers.get('set-cookie'), null, '방을 만들지 못하면 쿠키를 바꾸지 않는다');
 
@@ -299,7 +307,9 @@ test('방 수 제한: 사람당 진행 중 2개, 서비스 전체 MAX_ACTIVE_ROO
   const crowd = jar.game;
   for (const k of Object.keys(jar)) delete jar[k];
   const full = await request('session');
-  assert.equal(full.code, 503);
+  assert.equal(full.code, 429);
+  assert.equal(full.data.code, 'rooms_full');
+  assert.deepEqual(full.headers.getSetCookie().map(c => c.split('=')[0]), ['player'], '방을 못 만들어도 플레이어 번호는 발급, 게임 쿠키는 없음');
   assert.ok(thoughts.roomsFull.includes(full.data.error), full.data.error);
 
   // 15분 넘게 쉰 방은 세지 않는다 → 다시 만들 수 있다
@@ -465,6 +475,8 @@ test('질문 차감: 차감 없는 응답이 연속 3번이면 다음 응답은 
   const fourth = await ask('kim', '/모호 3');
   assert.equal(fourth.data.status, 'clarify');
   assert.equal(fourth.data.used, 1, '네 번째 연속 무차감 응답은 1회 차감');
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  assert.ok(thoughts.forcedCharge.some(t => fourth.data.message.endsWith(t)), '질문 한 번을 쓴 셈이라는 속마음: ' + fourth.data.message);
   assert.equal(fourth.data.remaining, 19);
   // 차감 후 연속 횟수는 초기화된다
   assert.equal((await ask('kim', '/모호 4')).data.used, 0);
@@ -491,7 +503,8 @@ test('속마음 안내: 되묻기·반려·오류는 고정 속마음 문장, �
   assert.equal(vague[1].thought, undefined);
   assert.ok(hints.G3.includes(vague[2].thought), '세 번째에 구체성 힌트: ' + vague[2].thought);
   const next = await ask('hwangyc', '또 뭐 하셨어요?');
-  assert.ok(hints.S1.includes(next.data.thought), '다음 기준 하나만: ' + next.data.thought);
+  // 구체성(G3)을 통과하지 못한 질문은 S1을 세지 않으므로, 함께 차 있던 근거성(S2) 힌트가 다음에 나온다
+  assert.ok(hints.S2.includes(next.data.thought), '다음 기준 하나만: ' + next.data.thought);
 
   // AI 연결 실패: 기술 원인 대신 속마음
   env.OPENAI_API_KEY = 'test-only';

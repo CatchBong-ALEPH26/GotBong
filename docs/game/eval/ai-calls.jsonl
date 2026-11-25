@@ -1,0 +1,7 @@
+{"at":"2026-11-25T05:05:00Z","label":"장부 도입 전 누계: 판정 평가 1차 25 + 보정 후 17 + 경계 재확인 6 + 로컬 Worker 확인 약 5 (상한으로 5 잡음)","count":53}
+{"at":"2026-11-25T05:16:18.028Z","label":"cache-probe","task":"judge","model":"gpt-4.1-mini","ms":2537,"inputTokens":3179,"outputTokens":107,"cachedTokens":0,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}
+{"at":"2026-11-25T05:16:19.392Z","label":"cache-probe","task":"draft","model":"gpt-4.1","ms":1360,"inputTokens":2750,"outputTokens":50,"cachedTokens":0,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}
+{"at":"2026-11-25T05:16:20.984Z","label":"cache-probe","task":"verify","model":"gpt-4.1-mini","ms":1587,"inputTokens":2369,"outputTokens":79,"cachedTokens":0,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}
+{"at":"2026-11-25T05:16:23.548Z","label":"cache-probe","task":"judge","model":"gpt-4.1-mini","ms":2557,"inputTokens":3254,"outputTokens":179,"cachedTokens":1920,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}
+{"at":"2026-11-25T05:16:25.104Z","label":"cache-probe","task":"draft","model":"gpt-4.1","ms":1550,"inputTokens":2891,"outputTokens":126,"cachedTokens":1920,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}
+{"at":"2026-11-25T05:16:26.327Z","label":"cache-probe","task":"verify","model":"gpt-4.1-mini","ms":1217,"inputTokens":2527,"outputTokens":59,"cachedTokens":1920,"cacheKey":"gotbong-c8fd50bfd2b7f765-A"}

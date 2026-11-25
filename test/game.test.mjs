@@ -1,8 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+
+// 자동 테스트는 실제 AI를 한 번도 부르지 않는다 (Fixture·가짜 모델만). 실제 AI 주소로 나가려 하면 바로 실패시킨다.
+const guardedFetch = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => {
+  if (/api\.openai\.com|generativelanguage\.googleapis\.com/.test(String(url))) throw new Error('테스트에서 실제 AI 호출 금지: ' + url);
+  return guardedFetch(url, ...rest);
+};
 import { josa, fill, givenName } from '../lib/game/josa.mjs';
 import {
-  newCasting, initialState, advance, factView, publicCase, templateVars, roleOf, shuffle
+  newCasting, initialState, applyJudgement, factView, publicCase, templateVars, roleOf, shuffle
 } from '../lib/game/game.mjs';
 import { runQuestion } from '../lib/ai/pipeline.mjs';
 import { fixture } from '../lib/ai/llm.mjs';
@@ -61,22 +68,31 @@ test('호칭: 황윤찬은 씨, 나머지는 님', () => {
   assert.match(addressTable(game, 'won'), /김봉경 → "봉경님"/);
 });
 
-test('상태 기계: 해금은 누적·단조, 거짓말은 철회, 반복 추궁만으로는 풀리지 않음', () => {
+// 모델 판정 한 질문 (기본: 해당 사실을 만점으로 겨눔)
+const Q = (target, extra = {}) => ({ target, kind: 'case', g2: 'na', g3: true, s1: 2, basis: '근거', s2: 2, s3: 0, s4: 0, ...extra });
+
+test('상태 기계: 해금은 단조, 거짓말은 철회, 앞 단계는 메시지 전 기록 기준(연쇄 없음)', () => {
   let s = initialState().D;
-  for (let i = 0; i < 5; i++) s = advance('D', s, []).state;
-  assert.deepEqual(s.unlocked.sort(), roles.D.facts.filter(f => f.start).map(f => f.id).sort());
-  // 수신기 단서만으로는 2단계 불가 (1단계·C 증언 필요)
-  s = advance('D', s, ['clue:receiver']).state;
-  assert.ok(!s.unlocked.includes('d_receiver'));
-  const r1 = advance('D', s, ['cite:a_testimony']);
-  assert.deepEqual(r1.newly, ['d_cable_excuse']);
-  // 앞서 보여 준 수신기 단서는 누적돼 있으므로 C 증언만 더하면 바로 2단계
-  const r2 = advance('D', r1.state, ['cite:c_cable']);
+  assert.deepEqual([...s.unlocked].sort(), roles.D.facts.filter(f => f.start).map(f => f.id).sort());
+  // 앞 단계(d_cable_excuse)가 안 풀렸으면 만점이어도 d_receiver 불가
+  const blocked = applyJudgement('D', s, [Q('d_receiver')], { evidence: ['cite:c_cable', 'clue:receiver'], attached: true });
+  assert.deepEqual(blocked.newly, []);
+  assert.equal(blocked.scored[0].g1, false);
+  // 한 메시지 안에서 앞 질문이 뒤 질문의 앞 단계를 만들어 주지 않는다
+  const chain = applyJudgement('D', s, [Q('d_cable_excuse', { g2: 'yes' }), Q('d_receiver', { g2: 'yes' })], { evidence: ['cite:a_testimony'], attached: true });
+  assert.deepEqual(chain.newly, ['d_cable_excuse']);
+  s = chain.state;
+  assert.ok(s.evidence.includes('cite:a_testimony'), '첨부 증거는 기록에 누적');
+  // 이전 메시지에서 보여 준 수신기 단서도 필요 근거로 인정된다 (지난 첨부 기록)
+  s = applyJudgement('D', s, [Q('none', { s1: 0 })], { evidence: ['clue:receiver'], attached: true }).state;
+  const r2 = applyJudgement('D', s, [Q('d_receiver', { g2: 'yes' })], { evidence: ['cite:c_cable'], attached: true });
   assert.deepEqual(r2.newly, ['d_receiver']);
   const view = factView('D', r2.state, r2.newly);
   assert.ok(view.revoked.some(f => f.id === 'd_alibi'));
   assert.ok(view.revoked.some(f => f.id === 'd_cable_excuse'));
   assert.ok(view.fresh.some(f => f.id === 'd_receiver'));
+  // 이미 풀린 사실은 다시 풀지 않는다
+  assert.deepEqual(applyJudgement('D', r2.state, [Q('d_receiver')], {}).newly, []);
 });
 
 // 고정 응답 모델로 대표 풀이 경로를 실행한다
@@ -107,9 +123,10 @@ async function play(cast, victim) {
   await ask('D', '이 수신기는 뭐죠?', clue('receiver'));
   const d2 = await ask('D', '다시 설명해 보세요.', cite(c1));
   assert.ok(d2.facts.includes('d_receiver'), 'D 2단계');
-  // 근거(이 사람과의 대화 기록)가 생기도록 B가 먼저 말하게 한다. 첨부도 기록도 없으면 근거성은 0점이다
-  await ask('B', '쉬는 시간에 어디 계셨어요?');
-  const b1 = await ask('B', `${templateVars(game).D}씨는 자리에서 뭐 하고 있었어요?`);
+  // b_typing 의 필요 근거(빌드 기록)를 내밀며 묻는다. 근거 없이 물으면 근접에 그친다
+  const b0 = await ask('B', `${templateVars(game).D}씨는 자리에서 뭐 하고 있었어요?`);
+  assert.ok(!b0.facts.includes('b_typing'), '필요 근거 없이 물으면 풀리지 않는다');
+  const b1 = await ask('B', '이 빌드 기록 보면 그때 자리에서 뭐 하고 있었어요?', clue('build'));
   assert.ok(b1.facts.includes('b_typing'));
   await ask('D', '이 사람이 본 건요?', cite(b1));
   const d3 = await ask('D', '휴지통 기록은요?', clue('trash'));
@@ -200,59 +217,83 @@ function JUDGED(kind, extra = {}) {
   };
 }
 
-test('해금 판정: 점수 조합 예시 표(4.4)와 같은 결과', async () => {
-  const { scoreQuestion } = await import('../lib/game/game.mjs');
-  // 일반 b_source, 중요 a_testimony, 핵심 d_motive(앞 단계 d_delete 가 풀린 상태)
-  const ctx = (roleId, unlocked = []) => ({ roleId, unlocked: [...initialState()[roleId].unlocked, ...unlocked], attached: false });
-  const run = (roleId, target, [s1, s2, s3, s4], unlocked) =>
-    scoreQuestion({ target, g2: 'na', g3: true, s1, s2, s3, s4 }, ctx(roleId, unlocked)).outcome;
+test('해금 판정: 점수 조합 예시 표(4.4)와 같은 결과 (일반·중요는 합계만, 핵심은 S1·S2 만점 + 합계 4)', () => {
+  // 일반 b_source, 중요 a_testimony, 핵심 d_motive(앞 단계까지 풀린 상태). 필요 근거는 갖춘 것으로 둔다
+  const st = (roleId, extra = []) => ({ unlocked: [...initialState()[roleId].unlocked, ...extra], evidence: ['clue:source', 'cite:d_points_a', 'clue:chat'] });
+  const run = (roleId, target, [s1, s2, s3, s4], extra) =>
+    applyJudgement(roleId, st(roleId, extra), [Q(target, { s1, s2, s3, s4 })]).scored[0].outcome;
   const core = ['d_cable_excuse', 'd_receiver', 'd_delete'];
   const table = [
     [[2, 2, 0, 0], 'unlock', 'unlock', 'unlock'],
     [[2, 1, 1, 0], 'unlock', 'unlock', 'near'],
     [[2, 0, 0, 0], 'near', 'near', 'near'],
-    [[2, 2, 0, -1], 'unlock', 'near', 'near']
+    [[2, 2, 0, -1], 'unlock', 'near', 'near'],
+    [[1, 1, 1, 0], 'unlock', 'near', 'near']
   ];
   for (const [scores, normal, important, coreOut] of table) {
     assert.equal(run('B', 'b_source', scores), normal, '일반 ' + scores);
     assert.equal(run('A', 'a_testimony', scores), important, '중요 ' + scores);
     assert.equal(run('D', 'd_motive', scores, core), coreOut, '핵심 ' + scores);
   }
-  // S1 이 0 이면 근접도 아니다
-  assert.equal(run('B', 'b_source', [0, 2, 1, 0]), 'none');
 });
 
-test('해금 판정: 절대 기준(G1 앞 단계, G2 첨부 연결, G3 구체성)이 하나라도 실패하면 해금 불가', async () => {
-  const { scoreQuestion } = await import('../lib/game/game.mjs');
-  const full = { g2: 'na', g3: true, s1: 2, s2: 2, s3: 1, s4: 0 };
-  const startD = initialState().D.unlocked;
-  // G1: d_receiver 는 d_cable_excuse 가 먼저 풀려야 한다
-  const g1 = scoreQuestion({ ...full, target: 'd_receiver' }, { roleId: 'D', unlocked: startD, attached: false });
-  assert.equal(g1.g1, false);
-  assert.equal(g1.outcome, 'none');
-  assert.equal(scoreQuestion({ ...full, target: 'd_receiver' }, { roleId: 'D', unlocked: [...startD, 'd_cable_excuse'], attached: false }).outcome, 'unlock');
-  // G2: 첨부가 있는데 질문이 첨부와 따로 놀면 불가
-  assert.equal(scoreQuestion({ ...full, target: 'b_source', g2: 'no' }, { roleId: 'B', unlocked: [], attached: true }).outcome, 'none');
-  assert.equal(scoreQuestion({ ...full, target: 'b_source', g2: 'yes' }, { roleId: 'B', unlocked: [], attached: true }).outcome, 'unlock');
+test('해금 판정: 절대 기준(G1 앞 단계, G2 첨부 연결, G3 구체성)이 하나라도 실패하면 해금 불가, 형식 확인', () => {
+  const B = { unlocked: initialState().B.unlocked, evidence: [] };
+  const withSource = { evidence: ['clue:source'], attached: true };
+  assert.deepEqual(applyJudgement('B', B, [Q('b_source', { g2: 'yes' })], withSource).newly, ['b_source']);
+  // G2: 첨부가 있는데 질문이 첨부와 따로 놀면 불가 ("na"로 적어도 첨부가 있으면 실패)
+  assert.deepEqual(applyJudgement('B', B, [Q('b_source', { g2: 'no' })], withSource).newly, []);
+  assert.deepEqual(applyJudgement('B', B, [Q('b_source', { g2: 'na' })], withSource).newly, []);
   // G3: 포괄적인 질문
-  assert.equal(scoreQuestion({ ...full, target: 'b_source', g3: false }, { roleId: 'B', unlocked: [], attached: false }).outcome, 'none');
-  // 형식 검사: 이미 풀린 사실·처음부터 아는 사실·없는 사실은 고를 수 없다
+  assert.deepEqual(applyJudgement('B', B, [Q('b_source', { g3: false, g2: 'yes' })], withSource).newly, []);
+  // 형식 확인: 처음부터 아는 사실·이미 풀린 사실·없는 사실은 고를 수 없다
+  const opened = { unlocked: [...B.unlocked, 'b_source'], evidence: ['clue:source'] };
   for (const target of ['b_source', 'b_teacher', 'zzz']) {
-    const r = scoreQuestion({ ...full, target }, { roleId: 'B', unlocked: ['b_source'], attached: false });
+    const r = applyJudgement('B', opened, [Q(target)]).scored[0];
     assert.equal(r.target, null, target);
     assert.equal(r.outcome, 'none');
   }
+  // S1=0 은 "무관"이라 겨냥 사실이 없는 것으로 본다 (다른 점수로 해금선을 넘지 못함)
+  const unrelated = applyJudgement('B', { ...B, evidence: ['clue:source'] }, [Q('b_source', { s1: 0, s3: 1 })]).scored[0];
+  assert.equal(unrelated.target, null);
+  assert.equal(unrelated.outcome, 'none');
 });
 
-test('해금 판정: 모든 잠긴 사실에 중요도·핵심 요소·근거 안내가 있고, 앞 단계(after)는 예전 조건의 has: 와 같다', () => {
-  const hasAtoms = cond => typeof cond === 'string' ? (cond.startsWith('has:') ? [cond.slice(4)] : [])
-    : (cond?.all ?? cond?.any ?? []).flatMap(hasAtoms);
+test('근거성 형식 확인: 필요 근거가 없으면 S2 최대 1, 첨부·기록이 없거나 인용이 "없음"이면 0', () => {
+  const B = initialState().B;
+  // 필요 근거(소스 열람 기록)를 보여 준 적 없음 → S2 2 → 1: 일반 사실 (2,1)=3 해금, 중요 b_typing (2,1)=3 근접
+  const noEvidence = applyJudgement('B', B, [Q('b_source'), Q('b_typing')]);
+  assert.deepEqual(noEvidence.scored.map(x => x.s2), [1, 1]);
+  assert.deepEqual(noEvidence.newly, ['b_source']);
+  assert.equal(noEvidence.scored[1].outcome, 'near');
+  // 핵심 사실은 필요 근거 없이는 만점이 될 수 없다
+  const D = { unlocked: [...initialState().D.unlocked, 'd_cable_excuse', 'd_receiver', 'd_delete'], evidence: [] };
+  assert.deepEqual(applyJudgement('D', D, [Q('d_motive', { s3: 1 })]).newly, []);
+  assert.deepEqual(applyJudgement('D', D, [Q('d_motive', { g2: 'yes' })], { evidence: ['clue:chat'], attached: true }).newly, ['d_motive']);
+  // 첨부도 기록도 없음, 또는 근거 인용 "없음"
+  assert.equal(applyJudgement('B', B, [Q('b_record')], { grounded: false }).scored[0].s2, 0);
+  assert.equal(applyJudgement('B', B, [Q('b_record', { basis: '없음' })]).scored[0].s2, 0);
+  assert.equal(applyJudgement('B', B, [Q('b_record')]).scored[0].s2, 2, '필요 근거가 없는 사실은 깎지 않는다');
+});
+
+test('시나리오 데이터: 잠긴 사실마다 중요도·핵심 요소·근거 안내, 필요 근거·앞 단계는 실제 ID, 예전 조건 문법 없음', async () => {
+  const { clueIds } = await import('../lib/game/data/case.mjs');
+  const { needAtoms } = await import('../lib/game/game.mjs');
+  const allFacts = roleIds.flatMap(r => roles[r].facts.map(f => f.id));
   for (const r of roleIds) {
-    for (const f of roles[r].facts.filter(x => !x.start)) {
+    assert.equal(roles[r].intents, undefined, 'ask: 의도 목록 제거');
+    for (const f of roles[r].facts) {
+      assert.equal(f.unlock, undefined, f.id + ' 예전 조건 문법 제거');
+      if (f.start) continue;
       assert.ok(['normal', 'important', 'core'].includes(f.tier), f.id);
       assert.ok(Array.isArray(f.elements) && f.elements.length >= 2, f.id);
       assert.ok(typeof f.basis === 'string' && f.basis.length > 10, f.id);
-      assert.deepEqual([...f.after].sort(), hasAtoms(f.unlock).sort(), f.id);
+      assert.ok(f.keywords?.length, f.id + ' 테스트 모드 키워드');
+      for (const id of f.after) assert.ok(roles[r].facts.some(x => x.id === id), f.id + ' 앞 단계 ' + id);
+      for (const atom of needAtoms(f.needs)) {
+        const [kind, id] = atom.split(':');
+        assert.ok(kind === 'clue' ? clueIds.includes(id) : kind === 'cite' && allFacts.includes(id), f.id + ' 필요 근거 ' + atom);
+      }
     }
   }
   const tiers = Object.fromEntries(roleIds.flatMap(r => roles[r].facts.filter(x => !x.start).map(f => [f.id, f.tier])));
@@ -270,8 +311,8 @@ test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 
     const model = async (task, req) => {
       order.push(task);
       if (task === 'judge') {
-        assert.ok(req.user.includes('[잠긴 사실'), '판정 입력에 잠긴 사실');
-        assert.ok(!req.user.includes('범인은'), '판정 입력에 정답(진상) 없음');
+        assert.ok(req.system[0].includes('[대상의 사실 목록') && req.user.includes('[사실 상태'), '판정 입력: 사실 목록(고정) + 사실 상태(가변)');
+        assert.ok(!(req.system.join('') + req.user).includes('범인은'), '판정 입력에 정답(진상 문서) 없음');
         return { value: judged, metric: {} };
       }
       return { value: task === 'draft' ? { reply: '대답', emotion: '기본' } : { pass: true, reason: '', disclosed: [] }, metric: {} };
@@ -280,6 +321,7 @@ test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 
     return { r, order };
   };
   const one = await run(JUDGED('case', { target: 'b_source', g2: 'yes', g3: true, s1: 2, basis: '소스 열람 기록', s2: 2 }), 20, { type: 'clue', id: 'source', title: '소스 열람 기록' });
+  assert.equal(one.r.debug.calls.length, 3);
   assert.deepEqual(one.order, ['judge', 'draft', 'verify']);
   assert.ok(one.r.state.unlocked.includes('b_source'));
   assert.equal(one.r.count, 1);
@@ -312,21 +354,57 @@ test('질문 처리: 근접(해금선 미만, S1≥1)은 해금 없이 표정만
   assert.ok(!r.state.unlocked.includes('a_testimony'));
 });
 
-test('구조화 출력 형식 검사: 목록 밖의 사실 ID·범위 밖 점수는 거부', async () => {
+test('구조화 출력: NPC 단위로 고정된 공통 스키마, 목록 밖 ID·범위 밖 점수·근거 인용 누락은 거부', async () => {
   const { checkSchema } = await import('../lib/ai/llm.mjs');
-  const { judgeSchema } = await import('../lib/ai/prompts.mjs');
-  const schema = judgeSchema(['b_source']);
-  const ok = JUDGED('case', { target: 'b_source', s1: 2 });
-  assert.ok(checkSchema(ok, schema));
-  assert.ok(!checkSchema(JUDGED('case', { target: 'b_typing' }), schema));
-  assert.ok(!checkSchema(JUDGED('case', { s1: 3 }), schema));
-  assert.ok(!checkSchema(JUDGED('case', { s4: 1 }), schema));
-  const { basis, ...noBasis } = ok.questions[0];
-  assert.ok(basis && !checkSchema({ ...ok, questions: [noBasis] }, schema), '근거 인용(basis) 필수');
-  assert.ok(!checkSchema({ ...ok, questions: [{ ...ok.questions[0], s2: '2' }] }, schema));
+  const { fastSchema } = await import('../lib/ai/prompts.mjs');
+  const schema = fastSchema('B');
+  assert.equal(fastSchema('B'), schema, '같은 NPC면 같은 스키마 (질문마다 바뀌지 않음)');
+  const wrap = q => ({ result: { task: 'judge', count_reason: '1', unclear: false, questions: [q] } });
+  const ok = JUDGED('case', { target: 'b_source', s1: 2 }).questions[0];
+  assert.ok(checkSchema(wrap(ok), schema));
+  assert.ok(checkSchema(wrap({ ...ok, target: 'b_teacher' }), schema), '전체 ID 고정 (고를 수 있는지는 코드가 확인)');
+  assert.ok(!checkSchema(wrap({ ...ok, target: 'd_receiver' }), schema), '다른 NPC의 사실 ID');
+  assert.ok(!checkSchema(wrap({ ...ok, s1: 3 }), schema));
+  assert.ok(!checkSchema(wrap({ ...ok, s4: 1 }), schema));
+  assert.ok(!checkSchema(wrap({ ...ok, s2: '2' }), schema));
+  const { basis, ...noBasis } = ok;
+  assert.ok(basis !== undefined && !checkSchema(wrap(noBasis), schema), '근거 인용(basis) 필수');
+  assert.ok(checkSchema({ result: { task: 'verify', reason: '통과', pass: true, disclosed: ['b_plagiarism'] } }, schema), '검증 갈래');
 });
 
-// ── 속마음 연출 (6장) ─────────────────────────────────────
+test('캐시 친화 배치: 판정·검증의 앞부분과 스키마가 같고 게임·NPC 동안 바뀌지 않으며, 가변 부분은 대화 기록부터', async () => {
+  const requests = [];
+  const model = async (task, req) => {
+    requests.push({ task, ...req });
+    const value = task === 'judge' ? JUDGED('case', { target: 'b_source', g2: 'yes', g3: true, s1: 2, basis: '기록', s2: 2 })
+      : task === 'draft' ? { reply: '소스 파일을 열어 봤어요.', emotion: '기본' } : { result: { task: 'verify', reason: '통과', pass: true, disclosed: [] } };
+    return { value, metric: {} };
+  };
+  const game = { id: 'g-1', cast: allCasts[0], victim: '곽도현', state: initialState() };
+  const history = [];
+  for (const q of ['이 기록 보세요', '그다음엔요?']) {
+    const r = await runQuestion({ model, game, roleId: 'B', question: q, attach: { type: 'clue', id: 'source', title: '소스 열람 기록' }, history });
+    game.state = { ...game.state, B: r.state };
+    history.push({ question: q, reply: r.reply, attach: null });
+  }
+  const fast = requests.filter(r => r.task !== 'draft');
+  assert.deepEqual(fast.map(r => r.task), ['judge', 'verify', 'judge', 'verify']);
+  // 1) 판정·검증·두 번째 판정 모두 같은 첫 system 블록과 같은 스키마 객체
+  assert.ok(fast.every(r => r.system[0] === fast[0].system[0]), '고정 앞부분 동일');
+  assert.ok(fast.every(r => r.schema === fast[0].schema), '스키마 동일');
+  assert.equal(new Set(requests.map(r => r.cacheKey)).size, 1, '같은 게임·NPC는 같은 캐시 키');
+  // 2) 앞부분에는 상태가 없다 (해금 후에도 같음), 사실은 전부 고정 순서로
+  assert.ok(roles.B.facts.every(f => fast[0].system[0].includes(`(${f.id})`)));
+  assert.ok(!/해금 가능|이미 털어놓음|앞 단계 미충족/.test(fast[0].system[0]));
+  // 3) 가변 부분은 대화 기록이 맨 앞이고, 다음 질문의 기록은 앞 질문 기록 뒤에 붙기만 한다
+  const drafts = requests.filter(r => r.task === 'draft');
+  assert.equal(drafts[0].system, drafts[1].system, '초안 system 고정');
+  assert.ok(fast[2].user.startsWith('[대화 기록'), '판정 가변 부분은 대화 기록부터');
+  const line1 = fast[2].user.split('\n')[1];
+  assert.match(line1, /이 기록 보세요/);
+  // 4) 키·시각 같은 바뀌는 값이 앞부분에 없다
+  assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(fast[0].system.join('')));
+});
 
 test('속마음 힌트: 단서 이름·사실 내용·증거 위치·인물·정답 확인·점수가 들어가지 않는다', async () => {
   const { hints, thoughts } = await import('../lib/game/data/thoughts.mjs');
@@ -363,7 +441,8 @@ test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으
   const good = { kind: 'case', g1: true, g2: null, g3: true, s1: 2, s2: 2, s4: 0 };
   const chat = { kind: 'chat', g1: null, g2: null, g3: false, s1: 0, s2: 0, s4: 0 };
   assert.deepEqual(lowFlags([chat]), {}, '잡담은 세지 않는다');
-  assert.deepEqual(lowFlags([vague]), { G3: true, S1: true, S2: true, S4: false });
+  assert.deepEqual(lowFlags([vague]), { G3: true, S2: true, S4: false }, 'G3를 통과하지 못하면 S1은 세지 않는다');
+  assert.equal(lowFlags([{ ...vague, g3: true }]).S1, true, '겨냥 사실 없이 G3 통과, S1=0 이면 낮음');
   // 메시지 안의 질문 중 하나라도 낮으면 그 메시지는 낮음 (한 메시지는 1회)
   assert.equal(lowFlags([good, vague]).S2, true);
 
@@ -375,9 +454,9 @@ test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으
   ({ lows, hint } = updateLows(lows, lowFlags([vague])));
   assert.equal(hint, 'G3', '동시에 차면 절대 기준이 먼저, 하나만');
   assert.equal(lows.G3, 0, '보여 준 기준은 0으로');
-  assert.equal(lows.S1, 3, '나머지는 그대로');
+  assert.equal(lows.S2, 3, '나머지는 그대로');
   ({ lows, hint } = updateLows(lows, lowFlags([vague])));
-  assert.equal(hint, 'S1');
+  assert.equal(hint, 'S2');
   // 좋은 점수를 받으면 그 기준은 초기화
   ({ lows } = updateLows({ S2: 2, S4: 2 }, lowFlags([good])));
   assert.equal(lows.S2, 0);
@@ -388,14 +467,4 @@ test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으
   // 해당 없는 기준(첨부 없을 때 G2)은 그대로
   ({ lows } = updateLows({ G2: 2 }, lowFlags([good])));
   assert.equal(lows.G2, 2);
-});
-
-test('근거성 형식 확인: 첨부도 대화 기록도 없거나 근거 인용이 "없음"이면 S2는 0으로 본다', async () => {
-  const { applyJudgement } = await import('../lib/game/game.mjs');
-  const q = { target: 'b_source', kind: 'case', g2: 'na', g3: true, s1: 2, basis: '기록에서', s2: 2, s3: 0, s4: 0 };
-  const B = initialState().B;
-  assert.deepEqual(applyJudgement('B', B, [q], { grounded: true }).newly, ['b_source']);
-  assert.deepEqual(applyJudgement('B', B, [q], { grounded: false }).newly, [], '근거 없이 정확히 맞혀도 근접까지만');
-  assert.equal(applyJudgement('B', B, [q], { grounded: false }).near, true);
-  assert.deepEqual(applyJudgement('B', B, [{ ...q, basis: '없음' }], { grounded: true }).newly, []);
 });

@@ -20,16 +20,17 @@ import {
 import { openRoom, MAX_QUESTIONS } from "../../../lib/server/rooms.mjs";
 
 export async function GET(request) {
+  // 플레이어 번호는 한 번 발급한다. 방을 만들지 못한 응답(429)에도 붙여 다음 요청부터 같은 사람으로 센다.
+  let player = getPlayerId(request);
+  const newPlayer = !player;
+  if (newPlayer) player = crypto.randomUUID();
+
   try {
     const db = openD1(env.DB);
     const { mode } = modelFromEnv(env);
     const now = Date.now();
 
-    // 1. 플레이어 번호(한 번 발급)와 기존 게임 쿠키 확인
-    let player = getPlayerId(request);
-    const newPlayer = !player;
-    if (newPlayer) player = crypto.randomUUID();
-
+    // 1. 기존 게임 쿠키 확인
     const cookie = getGameId(request);
     let game = cookie ? await db.getGame(cookie) : null;
     let newGameCreated = false;
@@ -73,10 +74,14 @@ export async function GET(request) {
     return response;
   } catch (error) {
     if (error instanceof GameHttpError) {
-      return Response.json(errorBody(error), {
+      const response = Response.json(errorBody(error), {
         status: error.status,
         headers: { "Cache-Control": "no-store" },
       });
+      // 방 가득참(429 + code)일 때만 붙인다. 다른 오류(예: 다른 사이트의 폼 전송 415)에는 붙이지 않는다:
+      // SameSite=Strict 라 그런 요청엔 기존 쿠키가 없어 새 번호로 덮어쓰게 되기 때문이다.
+      if (newPlayer && error.extra?.code) response.headers.append("Set-Cookie", playerCookie(request, player));
+      return response;
     }
 
     console.error("게임 세션 API 오류:", error);

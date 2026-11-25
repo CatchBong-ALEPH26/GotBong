@@ -14,7 +14,8 @@ export default function PlayPage() {
       <main className="screen center">
         <SceneBackdrop />
         <div className="px window lobby" role={error ? "alert" : "status"}>
-          <span className="px-tag">{error ? "연결 실패" : "불러오는 중"}</span>
+          {/* 오류 문장은 서버가 준 탐정 속마음(방 가득참 등)이므로 안내로 보여 준다 */}
+          <span className="px-tag">{error ? "탐정" : "불러오는 중"}</span>
           <p className="say">{error ?? "사건 파일을 펼치는 중…"}</p>
           {error && (
             <button className="px-btn on block" onClick={retry}>
