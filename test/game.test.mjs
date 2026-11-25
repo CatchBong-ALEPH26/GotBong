@@ -107,6 +107,8 @@ async function play(cast, victim) {
   await ask('D', '이 수신기는 뭐죠?', clue('receiver'));
   const d2 = await ask('D', '다시 설명해 보세요.', cite(c1));
   assert.ok(d2.facts.includes('d_receiver'), 'D 2단계');
+  // 근거(이 사람과의 대화 기록)가 생기도록 B가 먼저 말하게 한다. 첨부도 기록도 없으면 근거성은 0점이다
+  await ask('B', '쉬는 시간에 어디 계셨어요?');
   const b1 = await ask('B', `${templateVars(game).D}씨는 자리에서 뭐 하고 있었어요?`);
   assert.ok(b1.facts.includes('b_typing'));
   await ask('D', '이 사람이 본 건요?', cite(b1));
@@ -194,7 +196,7 @@ test('질문 처리: 영문이 섞인 잡담 답은 검증을 건너뛰지 않�
 function JUDGED(kind, extra = {}) {
   return {
     count_reason: '한 개', unclear: false,
-    questions: [{ text: 'q', reason: 'r', kind, repeat: false, target: 'none', g2: 'na', g3: false, s1: 0, s2: 0, s3: 0, s4: 0, ...extra }]
+    questions: [{ text: 'q', reason: 'r', kind, repeat: false, target: 'none', g2: 'na', g3: false, s1: 0, basis: '없음', s2: 0, s3: 0, s4: 0, ...extra }]
   };
 }
 
@@ -263,7 +265,7 @@ test('해금 판정: 모든 잠긴 사실에 중요도·핵심 요소·근거 �
 
 test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 반려·되묻기면 메인 모델을 부르지 않는다', async () => {
   const game = { cast: allCasts[0], victim: '곽도현', state: initialState() };
-  const run = async (judged, remaining = 20) => {
+  const run = async (judged, remaining = 20, attach = null) => {
     const order = [];
     const model = async (task, req) => {
       order.push(task);
@@ -274,10 +276,10 @@ test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 
       }
       return { value: task === 'draft' ? { reply: '대답', emotion: '기본' } : { pass: true, reason: '', disclosed: [] }, metric: {} };
     };
-    const r = await runQuestion({ model, game, roleId: 'B', question: 'q', attach: null, history: [], remaining });
+    const r = await runQuestion({ model, game, roleId: 'B', question: 'q', attach, history: [], remaining });
     return { r, order };
   };
-  const one = await run(JUDGED('case', { target: 'b_source', g3: true, s1: 2, s2: 2 }));
+  const one = await run(JUDGED('case', { target: 'b_source', g2: 'yes', g3: true, s1: 2, basis: '소스 열람 기록', s2: 2 }), 20, { type: 'clue', id: 'source', title: '소스 열람 기록' });
   assert.deepEqual(one.order, ['judge', 'draft', 'verify']);
   assert.ok(one.r.state.unlocked.includes('b_source'));
   assert.equal(one.r.count, 1);
@@ -319,6 +321,8 @@ test('구조화 출력 형식 검사: 목록 밖의 사실 ID·범위 밖 점수
   assert.ok(!checkSchema(JUDGED('case', { target: 'b_typing' }), schema));
   assert.ok(!checkSchema(JUDGED('case', { s1: 3 }), schema));
   assert.ok(!checkSchema(JUDGED('case', { s4: 1 }), schema));
+  const { basis, ...noBasis } = ok.questions[0];
+  assert.ok(basis && !checkSchema({ ...ok, questions: [noBasis] }, schema), '근거 인용(basis) 필수');
   assert.ok(!checkSchema({ ...ok, questions: [{ ...ok.questions[0], s2: '2' }] }, schema));
 });
 
@@ -384,4 +388,14 @@ test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으
   // 해당 없는 기준(첨부 없을 때 G2)은 그대로
   ({ lows } = updateLows({ G2: 2 }, lowFlags([good])));
   assert.equal(lows.G2, 2);
+});
+
+test('근거성 형식 확인: 첨부도 대화 기록도 없거나 근거 인용이 "없음"이면 S2는 0으로 본다', async () => {
+  const { applyJudgement } = await import('../lib/game/game.mjs');
+  const q = { target: 'b_source', kind: 'case', g2: 'na', g3: true, s1: 2, basis: '기록에서', s2: 2, s3: 0, s4: 0 };
+  const B = initialState().B;
+  assert.deepEqual(applyJudgement('B', B, [q], { grounded: true }).newly, ['b_source']);
+  assert.deepEqual(applyJudgement('B', B, [q], { grounded: false }).newly, [], '근거 없이 정확히 맞혀도 근접까지만');
+  assert.equal(applyJudgement('B', B, [q], { grounded: false }).near, true);
+  assert.deepEqual(applyJudgement('B', B, [{ ...q, basis: '없음' }], { grounded: true }).newly, []);
 });

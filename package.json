@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite dev --port 3000",
+    "dev:ai": "node scripts/dev-ai.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/*.test.mjs\"",

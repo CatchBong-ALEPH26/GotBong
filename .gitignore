@@ -46,3 +46,6 @@ next-env.d.ts
 /dist/
 .vinext/
 .cloudflare/
+
+# 로컬 Worker용 비밀 값 (Cloudflare 로컬 개발이 읽는다). 커밋하지 않는다
+.dev.vars*

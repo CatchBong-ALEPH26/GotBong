@@ -47,10 +47,14 @@ async function resolveAttach(db, game, npc, attach) {
 
     const clue = clues.find((c) => c.id === attach.id);
 
+    const vars = templateVars(game);
+
+    // detail 은 판정·초안 모델에 주는 카드 내용이다. 브라우저 응답(publicAttach)에는 넣지 않는다.
     return {
       type: "clue",
       id: attach.id,
-      title: fill(clue.title, templateVars(game)),
+      title: fill(clue.title, vars),
+      detail: fill(clue.detail, vars),
     };
   }
 
@@ -238,7 +242,7 @@ export async function POST(request) {
             npc: attach.npc,
             reply: attach.reply,
           }
-        : attach;
+        : attach && { type: "clue", id: attach.id, title: attach.title };
 
     // 9. NPC 대화 데이터 생성
     const turn = {
