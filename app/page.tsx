@@ -20,6 +20,10 @@ export default function Title() {
           사건 시작
         </button>
       </div>
+      {/* 음원 라이선스상 게임 안 표기 필수 (public/audio/CREDITS.md) */}
+      <p className="or">
+        Music by Eric Matyas · <a href="https://soundimage.org" target="_blank" rel="noreferrer">www.soundimage.org</a>
+      </p>
     </main>
   );
 }

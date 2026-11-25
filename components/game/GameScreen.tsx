@@ -167,7 +167,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       // 심문도 진행이다. 열심히 묻는 중에 '막혔나?' 힌트가 끼어들지 않게 한다.
       setLastProgress(Date.now());
       setEmptyClicks(0);
-      if (r.message.emotion === "flustered") play("fluster");
+      play(r.message.emotion === "flustered" ? "fluster" : "reply");
       setDialog({ kind: "answer", messageId: r.message.id, animate: true, used: r.used, thought: r.thought });
     } catch (e) {
       play("notice");

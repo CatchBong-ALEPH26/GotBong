@@ -1,17 +1,18 @@
 "use client";
 
-// 효과음과 배경음. 파일 없이 Web Audio로 8비트 소리를 만든다.
-// 처음엔 꺼져 있고, 켜면 이 브라우저에 기억한다. 팀이 음원 파일을 주면 play()·startBgm() 안만 바꾸면 된다.
+// 효과음과 배경음. 음원 파일(public/audio, 출처는 public/audio/CREDITS.md)을 쓰고,
+// 파일이 없는 소리나 브라우저가 형식을 못 읽을 때는 Web Audio로 만든 8비트 합성음을 쓴다.
+// 처음엔 꺼져 있고, 켜면 이 브라우저에 기억한다.
 import { useSyncExternalStore } from "react";
 
-export type Sfx = "blip" | "tick" | "open" | "found" | "notice" | "fluster" | "send" | "stamp" | "win" | "lose";
+export type Sfx = "blip" | "tick" | "open" | "found" | "notice" | "fluster" | "send" | "reply" | "stamp" | "win" | "lose";
 
 const KEY = "gotbong:sound";
 let enabled = false;
 let loaded = false;
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
-let bgmTimer: ReturnType<typeof setInterval> | null = null;
+let bgm: HTMLAudioElement | null = null;
 let bgmWanted = false;
 const listeners = new Set<() => void>();
 
@@ -60,9 +61,36 @@ function tone(freq: number, start: number, dur: number, opts: { type?: Oscillato
 
 const N = (semi: number) => 440 * 2 ** (semi / 12); // A4 기준 반음
 
+const SFX_VOL = 0.5;
+const BGM_VOL = 0.3;
+const SFX_FILES: Partial<Record<Sfx, string>> = {
+  open: "/audio/sfx/sfx_click.ogg",
+  found: "/audio/sfx/sfx_evidence_unlock.ogg",
+  notice: "/audio/sfx/sfx_contradiction_failure.ogg",
+  send: "/audio/sfx/keyboard_short.wav",
+  reply: "/audio/sfx/keyboard_typing.wav",
+  stamp: "/audio/sfx/sfx_confirm.ogg",
+};
+
+const TYPES: Record<string, string> = { ogg: 'audio/ogg; codecs="vorbis"', wav: "audio/wav", mp3: "audio/mpeg" };
+function canPlay(src: string) {
+  return new Audio().canPlayType(TYPES[src.split(".").pop()!] ?? "") !== "";
+}
+
+/** 음원 재생. 이 브라우저가 형식을 못 읽으면 false (합성음으로 대신한다). */
+function playFile(src: string) {
+  if (typeof window === "undefined" || !canPlay(src)) return false;
+  const a = new Audio(src);
+  a.volume = SFX_VOL;
+  void a.play().catch(() => {});
+  return true;
+}
+
 export function play(s: Sfx) {
   load();
   if (!enabled) return;
+  const file = SFX_FILES[s];
+  if (file && playFile(file)) return;
   switch (s) {
     case "blip": // 타자 소리 (대사가 찍힐 때)
       return tone(N(3 + Math.floor(Math.random() * 3)), 0, 0.035, { vol: 0.035 });
@@ -81,6 +109,8 @@ export function play(s: Sfx) {
       return tone(N(10), 0, 0.22, { vol: 0.05, slide: -400 });
     case "send": // 질문 보냄
       return tone(N(0), 0, 0.06, { vol: 0.05, slide: 200 });
+    case "reply": // 답변 도착 (음원만, 합성음 없음)
+      return;
     case "stamp": // 제출 도장
       tone(N(-24), 0, 0.18, { type: "triangle", vol: 0.25 });
       return tone(N(-17), 0.02, 0.1, { vol: 0.05 });
@@ -93,36 +123,20 @@ export function play(s: Sfx) {
   }
 }
 
-/** 조용한 배경음: 느린 단조 아르페지오 (8마디 반복). 켜져 있을 때만 돈다. */
-const BGM_BARS = [
-  [-12, -5, 0, 3],
-  [-14, -7, -2, 2],
-  [-16, -9, -4, 0],
-  [-17, -10, -5, -1],
-];
-function bgmTick(step: number) {
-  // 브라우저가 아직 소리를 막아 둔 상태(클릭 전)면 음표를 예약하지 않는다.
-  // 멈춘 시계에 쌓인 음표가 첫 클릭 때 한꺼번에 터지는 것을 막는다.
-  if (!ctx || ctx.state !== "running") {
-    if (ctx?.state === "suspended") void ctx.resume();
+/** 배경음: "The 8-Bit Mystery" 반복. 반복 이음새가 자연스러운 ogg를 우선 쓰고, 못 읽으면 mp3. */
+function syncBgm() {
+  if (typeof window === "undefined") return;
+  if (!(enabled && bgmWanted)) {
+    bgm?.pause();
     return;
   }
-  const bar = BGM_BARS[Math.floor(step / 8) % BGM_BARS.length];
-  const i = step % 8;
-  const note = bar[[0, 1, 2, 3, 2, 1, 2, 3][i]];
-  tone(N(note), 0, 0.5, { type: "triangle", vol: 0.035 });
-  if (i === 0) tone(N(bar[0] - 12), 0, 2.2, { type: "triangle", vol: 0.04 });
-}
-function syncBgm() {
-  const on = enabled && bgmWanted;
-  if (on && !bgmTimer) {
-    let step = 0;
-    bgmTick(step++);
-    bgmTimer = setInterval(() => bgmTick(step++), 380);
-  } else if (!on && bgmTimer) {
-    clearInterval(bgmTimer);
-    bgmTimer = null;
+  if (!bgm) {
+    bgm = new Audio(canPlay("/audio/bgm/bgm_main.ogg") ? "/audio/bgm/bgm_main.ogg" : "/audio/bgm/bgm_main.mp3");
+    bgm.loop = true;
+    bgm.volume = BGM_VOL;
   }
+  // 새로고침 직후처럼 아직 클릭 전이면 브라우저가 막는다. 첫 클릭 때 다시 시도한다.
+  void bgm.play().catch(() => window.addEventListener("pointerdown", syncBgm, { once: true }));
 }
 
 /** 게임 화면에 들어가면 true, 나가면 false. */
