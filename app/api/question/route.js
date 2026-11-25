@@ -4,7 +4,7 @@ import { openD1 } from "../../../lib/server/db-d1.mjs";
 import { characters } from "../../../lib/game/data/characters.mjs";
 import { clues, clueIds } from "../../../lib/game/data/case.mjs";
 import { fill } from "../../../lib/game/josa.mjs";
-import { roleOf, templateVars } from "../../../lib/game/game.mjs";
+import { roleOf, templateVars, chargeFor } from "../../../lib/game/game.mjs";
 import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
 import { runQuestion } from "../../../lib/ai/pipeline.mjs";
 
@@ -185,8 +185,14 @@ export async function POST(request) {
       remaining: game.remaining,
     });
 
-    // 7. 되묻기·반려·답변 검증 실패는 질문 횟수를 줄이지 않는다
-    if (answer.status !== "answered" || !answer.pass) {
+    // 7. 되묻기·반려·답변 검증 실패: 질문 횟수를 줄이지 않는다.
+    //    단 차감 없는 응답이 이미 연속 3번이면 이번 응답은 1회 차감한다 (무한 반복 방지).
+    const answered = answer.status === "answered" && answer.pass;
+    const charge = chargeFor({ answered, count: answer.count, free: game.tally.free ?? 0 });
+    const remaining = game.remaining - charge.used;
+    const tally = { ...game.tally, free: charge.free };
+
+    if (!answered) {
       const response = {
         status: answer.status === "clarify" ? "clarify" : "rejected",
         message:
@@ -194,8 +200,9 @@ export async function POST(request) {
             ? "무엇을 묻는지 조금 더 구체적으로 적어 주세요."
             : answer.status === "rejected"
               ? "한 번에 물을 수 있는 질문 수를 넘었습니다."
-              : "답변을 만들지 못했습니다. 질문을 조금 바꿔 다시 물어봐 주세요. (질문 횟수는 줄지 않았습니다)",
-        remaining: game.remaining,
+              : "답변을 만들지 못했습니다. 질문을 조금 바꿔 다시 물어봐 주세요.",
+        remaining,
+        used: charge.used,
       };
 
       const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
@@ -205,6 +212,8 @@ export async function POST(request) {
           fingerprint,
           response,
           expectedRevision: game.revision,
+          remaining,
+          tally,
         })
       );
 
@@ -234,12 +243,12 @@ export async function POST(request) {
       facts: answer.disclosed,
     };
 
-    const remaining = game.remaining - 1;
-
+    // 센 질문 수만큼 차감한다 (판정 단계에서 남은 횟수 이하인 것을 확인했다)
     const response = {
       status: "accepted",
       turn: publicTurn(turn),
       remaining,
+      used: charge.used,
     };
 
     // 10. 대화·상태·요청 기록을 D1에 저장
@@ -257,6 +266,7 @@ export async function POST(request) {
           [roleId]: answer.state,
         },
         remaining,
+        tally,
       })
     );
 

@@ -304,3 +304,47 @@ test('최종 제출: 결과에 동기 채점 방식이 남는다', async t => {
   const wrong = await request('submit', { npc: 'kim', motive: '놀림에 대한 복수', requestId: 'grader-0002' });
   assert.equal(wrong.data.result.grader, null, '범인이 틀리면 채점하지 않는다');
 });
+
+test('질문 차감: 센 질문 수만큼 차감, 4개 이상·남은 횟수 초과는 반려(차감 없음)', async t => {
+  const { db, request, ask, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  const two = await ask('kim', '쉬는 시간에 어디 계셨어요? 누구 보셨어요?');
+  assert.equal(two.data.status, 'accepted');
+  assert.equal(two.data.used, 2);
+  assert.equal(two.data.remaining, 18);
+
+  const four = await ask('kim', '어디요? 언제요? 누구요? 왜요?');
+  assert.equal(four.data.status, 'rejected');
+  assert.equal(four.data.used, 0);
+  assert.equal(four.data.remaining, 18);
+
+  db.sql.prepare('UPDATE games SET remaining = 1').run();
+  const over = await ask('kim', '어디요? 누구요?');
+  assert.equal(over.data.status, 'rejected');
+  assert.equal(over.data.remaining, 1);
+  const last = await ask('kim', '쉬는 시간에 어디 계셨어요?');
+  assert.equal(last.data.status, 'accepted');
+  assert.equal(last.data.remaining, 0);
+  assert.equal((await ask('kim', '하나 더요')).code, 409, '남은 질문이 없으면 물을 수 없다');
+});
+
+test('질문 차감: 차감 없는 응답이 연속 3번이면 다음 응답은 1회 차감', async t => {
+  const { request, ask, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  for (let i = 0; i < 3; i++) {
+    const r = await ask('kim', '/모호 ' + i);
+    assert.equal(r.data.used, 0, i + '번째는 차감 없음');
+    assert.equal(r.data.remaining, 20);
+  }
+  const fourth = await ask('kim', '/모호 3');
+  assert.equal(fourth.data.status, 'clarify');
+  assert.equal(fourth.data.used, 1, '네 번째 연속 무차감 응답은 1회 차감');
+  assert.equal(fourth.data.remaining, 19);
+  // 차감 후 연속 횟수는 초기화된다
+  assert.equal((await ask('kim', '/모호 4')).data.used, 0);
+  // 답한 메시지도 연속 횟수를 초기화한다
+  await ask('kim', '쉬는 시간에 어디 계셨어요?');
+  for (let i = 0; i < 3; i++) assert.equal((await ask('kim', '/모호 again ' + i)).data.used, 0);
+});
