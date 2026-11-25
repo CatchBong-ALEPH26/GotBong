@@ -15,7 +15,7 @@
 | `lib/server/` | `db-d1.mjs`(D1 접근), `game-http.mjs`(오류·쿠키·입력 검증·공개 턴·방 확인), `rooms.mjs`(방 수 제한이 걸린 새 방), `access.mjs`(IP 허용 목록) |
 | `lib/game/` | 배정·상태 기계·해금 점수 합산·차감·힌트 집계(`game.mjs`), 조사 치환(`josa.mjs`), 시나리오·캐릭터·피해자·속마음 문장(`data/`, `data/thoughts.mjs`) |
 | `lib/ai/` | 모델 선택 Fixture/OpenAI/Gemini(`llm.mjs`), 질문 파이프라인(`pipeline.mjs`: 해금 판정 → 메인 모델 1회 → 답변 검증), 프롬프트(`prompts.mjs`: 캐시 친화 배치), 실제 호출 예산 장부(`budget.mjs`, 스크립트 전용) |
-| `migrations/` | D1 스키마 (`0001`, `0002` 운영 적용 완료 / `0003` 질문 집계, `0004` 방 관리는 **운영 미적용, 승인 필요**) |
+| `migrations/` | D1 스키마 (`0001`~`0004` 모두 운영 적용 완료. `0003` 질문 집계, `0004` 방 관리는 2026-11-25 적용) |
 | `test/` | `game.test.mjs`(게임 규칙·해금 판정·힌트 금지어), `api.test.mjs`(Workers API 계약·차감·방 관리·IP, `node:sqlite` D1 대역) |
 | `scripts/` | `eval.mjs`(말투·누설 평가), `judge-probe.mjs`(해금 판정 평가 세트), `cache-probe.mjs`(캐시 적중 확인), `dev-ai.mjs`(실제 키로 로컬 Worker). 모두 **유료 호출**이고, 앞의 셋은 장부 `docs/game/eval/ai-calls.jsonl` 누적 상한(`AI_CALL_BUDGET`, 기본 60)에서 멈춘다 |
 | `docs/game/` | `AI_REDESIGN_DECISIONS.md`(해금 판정·차감·속마음·방 관리 설계와 구현 중 결정, **지금 규칙의 기준**). 나머지는 Node 서버 시절 기록: 참고하되 **파일 경로는 위 표를 따른다** |
@@ -37,7 +37,7 @@
 
 ## 3. 금지 사항 (승인 없이 하지 않는다)
 
-- 운영 D1(`gotbong-dev`, ID `215068c4-…`)과 과거 개인 계정 D1(`0737af8d-…`)의 데이터 변경·초기화·삭제, 마이그레이션 재실행·새 마이그레이션(`0003`, `0004`) 적용. D1 명령에는 항상 `--local`을 붙였는지 확인한다.
+- 운영 D1(`gotbong-dev`, ID `215068c4-…`)과 과거 개인 계정 D1(`0737af8d-…`)의 데이터 변경·초기화·삭제, 마이그레이션 재실행·새 마이그레이션(`0005` 이후) 적용. D1 명령에는 항상 `--local`을 붙였는지 확인한다.
 - `main` 직접 push, `--force` push, Cloudflare 배포(`npm run deploy`, `cf deploy`).
 - API 키·토큰을 코드·`.env.example`·문서·커밋에 쓰기(로컬 `.env`, `.dev.vars`에만, 둘 다 Git 제외). Cloudflare Secrets 등록. 허용 IP 실제 값을 저장소에 쓰기.
 - 비용이 드는 실제 AI 호출(`npm run eval`, OpenAI·Gemini 키로 실행).

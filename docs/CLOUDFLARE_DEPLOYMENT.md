@@ -1,6 +1,6 @@
 # GotBong — Cloudflare 배포 및 팀 개발 가이드
 
-> 문서 기준일: 2026-11-24
+> 문서 기준일: 2026-11-25
 > 현재 공개 버전: **Fixture 테스트 모드** (OpenAI·Gemini API 키 미등록)
 > 배포 주소: <https://gotbong.aleph26.workers.dev/>
 > 저장소: <https://github.com/CatchBong-ALEPH26/GotBong>
@@ -32,7 +32,7 @@ GotBong은 **Cloudflare 중심 단일 구조**입니다. 로컬 개발도 운영
 | D1 데이터베이스 ID | `215068c4-cd09-4933-9f86-460b937a13b5` |
 | Worker의 DB 바인딩 | `env.DB` |
 | 배포에 사용한 CLI | `cf v1.0.0-rc.2` |
-| 마지막 확인 배포 버전 ID | `aee8abd2-0b80-4748-b4e0-5638afbe3acd` (2026-11-24, PR #5: 속도 제한·매일 빈 게임 정리 포함) |
+| 마지막 확인 배포 버전 ID | `2c8efadc-6510-48cd-ad3c-98937caf95ec` (2026-11-25, 해금 판정 재설계·질문 차감·속마음 힌트·방 관리, 마이그레이션 `0003`·`0004` 적용 후 배포) |
 
 팀원이 배포에 참여하려면 **GitHub 저장소 접근 권한**과 **GotBong Team Cloudflare 계정 권한**을 각각 받아야 합니다. 두 권한은 별도입니다.
 
@@ -52,7 +52,7 @@ npm.cmd run dev                # http://localhost:3000
 - 테스트: `npm.cmd test` → `test/game.test.mjs`(게임 규칙) + `test/api.test.mjs`(Workers API 계약: 쿠키·멱등성·revision·비공개 정보, `node:sqlite`로 만든 D1 대역 사용). 실제 Cloudflare·AI 호출은 없습니다.
 - 실제 모델 품질 평가: `.env.example`을 `.env`로 복사해 키를 넣고 `npm.cmd run eval -- --quick` (**유료 호출**, 팀 합의 후).
 - 로컬 Worker에서 실제 AI 키 쓰기(2026-11-25 확인): `.dev.vars`에 `OPENAI_API_KEY=...`를 넣고 `npm.cmd run dev:ai` (유료 호출). 로컬 런타임은 선언된 비밀 값만 채우므로 `GOTBONG_LOCAL_AI=1`일 때만 선언하도록 `cloudflare.config.ts`에 넣었습니다. 키는 채팅·스크린샷·Git에 노출하지 마세요.
-- **배포 전 필수(팀 승인):** 새 코드는 `migrations/0003_question_tally.sql`, `0004_rooms.sql`이 운영 D1에 적용돼 있어야 동작합니다(열·인덱스 추가만, 기존 기록 보존). 접속 허용 IP는 Cloudflare 변수 `ALLOWED_IPS`(쉼표 구분)로, 동시 방 상한은 `MAX_ACTIVE_ROOMS`(기본 30)로 등록합니다. 근거: `docs/game/AI_REDESIGN_DECISIONS.md` 12.8.
+- **운영 D1 스키마:** 코드는 `migrations/0003_question_tally.sql`, `0004_rooms.sql`이 적용된 D1에서만 동작합니다. 운영 D1에는 2026-11-25 적용 완료(열·인덱스 추가만, 기존 기록 보존, 적용 전 Time Travel 복구 지점 기록: `docs/game/AI_REDESIGN_DECISIONS.md` 12.8). 접속 허용 IP는 Cloudflare 변수 `ALLOWED_IPS`(쉼표 구분)로, 동시 방 상한은 `MAX_ACTIVE_ROOMS`(기본 30)로 등록합니다. 근거: `docs/game/AI_REDESIGN_DECISIONS.md` 12.8.
 
 ## 4. Cloudflare 계정 연결 및 배포
 
