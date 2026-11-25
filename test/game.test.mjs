@@ -160,7 +160,7 @@ test('질문 처리: 빈 답이나 너무 긴 답은 서버 오류가 아니라 
   const game = { cast: { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' }, victim: '곽도현', state: initialState() };
   for (const reply of ['', 'x'.repeat(1300)]) {
     const model = async task => ({
-      value: task === 'classify' ? { kind: 'case', intents: [], repeat: false }
+      value: task === 'judge' ? JUDGED('case')
         : task === 'draft' ? { reply, emotion: '기본' }
         : { pass: true, reason: '', disclosed: [] },
       metric: {}
@@ -178,7 +178,7 @@ test('질문 처리: 영문이 섞인 잡담 답은 검증을 건너뛰지 않�
   const model = async task => {
     if (task === 'verify') verified++;
     return {
-      value: task === 'classify' ? { kind: 'chat', intents: [], repeat: false }
+      value: task === 'judge' ? JUDGED('chat')
         : task === 'draft' ? { reply: 'I plugged my receiver in.', emotion: '기본' }
         : { pass: false, reason: '누설', disclosed: [] },
       metric: {}
@@ -187,4 +187,137 @@ test('질문 처리: 영문이 섞인 잡담 답은 검증을 건너뛰지 않�
   const r = await runQuestion({ model, game, roleId: 'D', question: '점심 뭐 드셨어요?', attach: null, history: [] });
   assert.ok(verified > 0);
   assert.equal(r.pass, false);
+});
+
+// ── 해금 판정 (docs/game/AI_REDESIGN_DECISIONS.md 4장) ──────────────
+
+function JUDGED(kind, extra = {}) {
+  return {
+    count_reason: '한 개', unclear: false,
+    questions: [{ text: 'q', reason: 'r', kind, repeat: false, target: 'none', g2: 'na', g3: false, s1: 0, s2: 0, s3: 0, s4: 0, ...extra }]
+  };
+}
+
+test('해금 판정: 점수 조합 예시 표(4.4)와 같은 결과', async () => {
+  const { scoreQuestion } = await import('../lib/game/game.mjs');
+  // 일반 b_source, 중요 a_testimony, 핵심 d_motive(앞 단계 d_delete 가 풀린 상태)
+  const ctx = (roleId, unlocked = []) => ({ roleId, unlocked: [...initialState()[roleId].unlocked, ...unlocked], attached: false });
+  const run = (roleId, target, [s1, s2, s3, s4], unlocked) =>
+    scoreQuestion({ target, g2: 'na', g3: true, s1, s2, s3, s4 }, ctx(roleId, unlocked)).outcome;
+  const core = ['d_cable_excuse', 'd_receiver', 'd_delete'];
+  const table = [
+    [[2, 2, 0, 0], 'unlock', 'unlock', 'unlock'],
+    [[2, 1, 1, 0], 'unlock', 'unlock', 'near'],
+    [[2, 0, 0, 0], 'near', 'near', 'near'],
+    [[2, 2, 0, -1], 'unlock', 'near', 'near']
+  ];
+  for (const [scores, normal, important, coreOut] of table) {
+    assert.equal(run('B', 'b_source', scores), normal, '일반 ' + scores);
+    assert.equal(run('A', 'a_testimony', scores), important, '중요 ' + scores);
+    assert.equal(run('D', 'd_motive', scores, core), coreOut, '핵심 ' + scores);
+  }
+  // S1 이 0 이면 근접도 아니다
+  assert.equal(run('B', 'b_source', [0, 2, 1, 0]), 'none');
+});
+
+test('해금 판정: 절대 기준(G1 앞 단계, G2 첨부 연결, G3 구체성)이 하나라도 실패하면 해금 불가', async () => {
+  const { scoreQuestion } = await import('../lib/game/game.mjs');
+  const full = { g2: 'na', g3: true, s1: 2, s2: 2, s3: 1, s4: 0 };
+  const startD = initialState().D.unlocked;
+  // G1: d_receiver 는 d_cable_excuse 가 먼저 풀려야 한다
+  const g1 = scoreQuestion({ ...full, target: 'd_receiver' }, { roleId: 'D', unlocked: startD, attached: false });
+  assert.equal(g1.g1, false);
+  assert.equal(g1.outcome, 'none');
+  assert.equal(scoreQuestion({ ...full, target: 'd_receiver' }, { roleId: 'D', unlocked: [...startD, 'd_cable_excuse'], attached: false }).outcome, 'unlock');
+  // G2: 첨부가 있는데 질문이 첨부와 따로 놀면 불가
+  assert.equal(scoreQuestion({ ...full, target: 'b_source', g2: 'no' }, { roleId: 'B', unlocked: [], attached: true }).outcome, 'none');
+  assert.equal(scoreQuestion({ ...full, target: 'b_source', g2: 'yes' }, { roleId: 'B', unlocked: [], attached: true }).outcome, 'unlock');
+  // G3: 포괄적인 질문
+  assert.equal(scoreQuestion({ ...full, target: 'b_source', g3: false }, { roleId: 'B', unlocked: [], attached: false }).outcome, 'none');
+  // 형식 검사: 이미 풀린 사실·처음부터 아는 사실·없는 사실은 고를 수 없다
+  for (const target of ['b_source', 'b_teacher', 'zzz']) {
+    const r = scoreQuestion({ ...full, target }, { roleId: 'B', unlocked: ['b_source'], attached: false });
+    assert.equal(r.target, null, target);
+    assert.equal(r.outcome, 'none');
+  }
+});
+
+test('해금 판정: 모든 잠긴 사실에 중요도·핵심 요소·근거 안내가 있고, 앞 단계(after)는 예전 조건의 has: 와 같다', () => {
+  const hasAtoms = cond => typeof cond === 'string' ? (cond.startsWith('has:') ? [cond.slice(4)] : [])
+    : (cond?.all ?? cond?.any ?? []).flatMap(hasAtoms);
+  for (const r of roleIds) {
+    for (const f of roles[r].facts.filter(x => !x.start)) {
+      assert.ok(['normal', 'important', 'core'].includes(f.tier), f.id);
+      assert.ok(Array.isArray(f.elements) && f.elements.length >= 2, f.id);
+      assert.ok(typeof f.basis === 'string' && f.basis.length > 10, f.id);
+      assert.deepEqual([...f.after].sort(), hasAtoms(f.unlock).sort(), f.id);
+    }
+  }
+  const tiers = Object.fromEntries(roleIds.flatMap(r => roles[r].facts.filter(x => !x.start).map(f => [f.id, f.tier])));
+  assert.deepEqual(tiers, {
+    a_testimony: 'important', a_receipt: 'normal', b_source: 'normal', b_record: 'normal', b_typing: 'important',
+    c_why: 'normal', c_roulette: 'normal', c_cable: 'important',
+    d_cable_excuse: 'normal', d_receiver: 'important', d_delete: 'core', d_motive: 'core'
+  });
+});
+
+test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 반려·되묻기면 메인 모델을 부르지 않는다', async () => {
+  const game = { cast: allCasts[0], victim: '곽도현', state: initialState() };
+  const run = async (judged, remaining = 20) => {
+    const order = [];
+    const model = async (task, req) => {
+      order.push(task);
+      if (task === 'judge') {
+        assert.ok(req.user.includes('[잠긴 사실'), '판정 입력에 잠긴 사실');
+        assert.ok(!req.user.includes('범인은'), '판정 입력에 정답(진상) 없음');
+        return { value: judged, metric: {} };
+      }
+      return { value: task === 'draft' ? { reply: '대답', emotion: '기본' } : { pass: true, reason: '', disclosed: [] }, metric: {} };
+    };
+    const r = await runQuestion({ model, game, roleId: 'B', question: 'q', attach: null, history: [], remaining });
+    return { r, order };
+  };
+  const one = await run(JUDGED('case', { target: 'b_source', g3: true, s1: 2, s2: 2 }));
+  assert.deepEqual(one.order, ['judge', 'draft', 'verify']);
+  assert.ok(one.r.state.unlocked.includes('b_source'));
+  assert.equal(one.r.count, 1);
+
+  const unclear = await run({ count_reason: '', unclear: true, questions: [] });
+  assert.equal(unclear.r.status, 'clarify');
+  assert.deepEqual(unclear.order, ['judge']);
+
+  const four = { count_reason: '4개', unclear: false, questions: Array(4).fill(JUDGED('case').questions[0]) };
+  const tooMany = await run(four);
+  assert.equal(tooMany.r.status, 'rejected');
+  assert.equal(tooMany.r.reason, 'too_many');
+  assert.deepEqual(tooMany.order, ['judge']);
+
+  const two = { count_reason: '2개', unclear: false, questions: Array(2).fill(JUDGED('case').questions[0]) };
+  const over = await run(two, 1);
+  assert.equal(over.r.reason, 'over_remaining');
+  assert.deepEqual(over.order, ['judge']);
+});
+
+test('질문 처리: 근접(해금선 미만, S1≥1)은 해금 없이 표정만 바뀐다', async () => {
+  const game = { cast: allCasts[0], victim: '곽도현', state: initialState() };
+  const model = async task => ({
+    value: task === 'judge' ? JUDGED('case', { target: 'a_testimony', g3: true, s1: 1, s2: 1 })
+      : task === 'draft' ? { reply: '복도에 있었어요.', emotion: '기본' } : { pass: true, reason: '', disclosed: [] },
+    metric: {}
+  });
+  const r = await runQuestion({ model, game, roleId: 'A', question: '교실에 왔었죠', attach: null, history: [] });
+  assert.equal(r.emotion, '당황');
+  assert.ok(!r.state.unlocked.includes('a_testimony'));
+});
+
+test('구조화 출력 형식 검사: 목록 밖의 사실 ID·범위 밖 점수는 거부', async () => {
+  const { checkSchema } = await import('../lib/ai/llm.mjs');
+  const { judgeSchema } = await import('../lib/ai/prompts.mjs');
+  const schema = judgeSchema(['b_source']);
+  const ok = JUDGED('case', { target: 'b_source', s1: 2 });
+  assert.ok(checkSchema(ok, schema));
+  assert.ok(!checkSchema(JUDGED('case', { target: 'b_typing' }), schema));
+  assert.ok(!checkSchema(JUDGED('case', { s1: 3 }), schema));
+  assert.ok(!checkSchema(JUDGED('case', { s4: 1 }), schema));
+  assert.ok(!checkSchema({ ...ok, questions: [{ ...ok.questions[0], s2: '2' }] }, schema));
 });

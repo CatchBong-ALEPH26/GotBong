@@ -108,6 +108,9 @@ const rows = await pool(jobs, CONCURRENCY, async ({ cast, roleId, q, expect }) =
   const game = { cast, victim: '곽도현', state: initialState() };
   try {
     const r = await runQuestion({ model, game, roleId, question: q.text, attach: null, history: [] });
+    // 되묻기·반려(status!=='answered')도 전달되지 않은 답으로 센다
+    r.pass = r.status === 'answered' && r.pass;
+    r.debug.unlocked ??= [];
     // 반려된 답은 플레이어에게 전달되지 않으므로 채점하지 않는다 (반려 수는 따로 센다).
     const score = q.kind === 'probe' || !r.pass
       ? { persona: null, paranoid: false, leak: false, comment: r.pass ? '해금 검사' : '반려됨 (전달 안 됨)' }
@@ -146,7 +149,7 @@ const probes = ok.filter(r => r.q.kind === 'probe');
 const probeHits = probes.filter(r => r.debug.unlocked.includes(r.expect));
 
 const calls = ok.flatMap(r => r.debug.calls);
-const byTask = ['classify', 'draft', 'verify'].map(task => {
+const byTask = ['judge', 'draft', 'verify'].map(task => {
   const cs = calls.filter(c => c.task === task);
   return {
     task, count: cs.length,
@@ -157,10 +160,8 @@ const byTask = ['classify', 'draft', 'verify'].map(task => {
   };
 });
 const turnMs = ok.map(r => {
-  // 분류와 초안은 병렬이므로 체감 지연 근사 = max(분류, 첫 초안) + 이후 호출 합
-  const [cls, ...rest] = r.debug.calls;
-  const first = rest[0]?.ms ?? 0;
-  return Math.max(cls?.ms ?? 0, first) + rest.slice(1).reduce((s, c) => s + c.ms, 0);
+  // 해금 판정 → 초안 → 검증이 순차이므로 체감 지연 = 호출 시간의 합
+  return r.debug.calls.reduce((s, c) => s + (c.ms ?? 0), 0);
 });
 
 const table = (head, data) => ['| ' + head.join(' | ') + ' |', '|' + head.map(() => '---').join('|') + '|',

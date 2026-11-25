@@ -125,7 +125,8 @@ test('질문: 반려·명확화는 차감 없음, 멱등성, 첨부로 해금, �
   const bad = await ask('kim', '/검증실패');
   assert.equal(bad.data.status, 'rejected');
   assert.equal(bad.data.remaining, 20);
-  assert.equal((await ask('kim', '어디였어? 누구 봤어?')).data.status, 'clarify');
+  assert.equal((await ask('kim', '/모호 무슨 말이지')).data.status, 'clarify');
+  assert.equal((await ask('kim', '???')).data.status, 'clarify');
 
   const body = { npc: 'hwanggh', question: '쉬는 시간에 뭐 하셨어요?', requestId: 'fixed-0001' };
   const d0 = await request('question', body);

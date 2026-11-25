@@ -6,10 +6,7 @@ import { clues, clueIds } from "../../../lib/game/data/case.mjs";
 import { fill } from "../../../lib/game/josa.mjs";
 import { roleOf, templateVars } from "../../../lib/game/game.mjs";
 import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
-import {
-  runQuestion,
-  ClarifyError,
-} from "../../../lib/ai/pipeline.mjs";
+import { runQuestion } from "../../../lib/ai/pipeline.mjs";
 
 import {
   GameHttpError,
@@ -175,50 +172,29 @@ export async function POST(request) {
     );
     const history = await db.turnsOf(game.id, npc);
 
-    // 6. 기존 AI 질문 처리 파이프라인 실행
-    let answer;
+    // 6. 질문 처리 (해금 판정 → 메인 모델 1회 → 답변 검증)
+    const { model } = modelFromEnv(env);
 
-    try {
-      const { model } = modelFromEnv(env);
+    const answer = await runQuestion({
+      model,
+      game,
+      roleId,
+      question,
+      attach,
+      history,
+      remaining: game.remaining,
+    });
 
-      answer = await runQuestion({
-        model,
-        game,
-        roleId,
-        question,
-        attach,
-        history,
-      });
-    } catch (error) {
-      if (error instanceof ClarifyError) {
-        const response = {
-          status: "clarify",
-          message: error.message,
-          remaining: game.remaining,
-        };
-
-        const replay = await commitOrReplay(db, game, { requestId, fingerprint }, () =>
-          db.commit({
-            gameId: game.id,
-            requestId,
-            fingerprint,
-            response,
-            expectedRevision: game.revision,
-          })
-        );
-
-        return json(replay ?? response);
-      }
-
-      throw error;
-    }
-
-    // 7. 답변 검증 실패 시 질문 횟수 유지
-    if (!answer.pass) {
+    // 7. 되묻기·반려·답변 검증 실패는 질문 횟수를 줄이지 않는다
+    if (answer.status !== "answered" || !answer.pass) {
       const response = {
-        status: "rejected",
+        status: answer.status === "clarify" ? "clarify" : "rejected",
         message:
-          "답변을 만들지 못했습니다. 질문을 조금 바꿔 다시 물어봐 주세요. (질문 횟수는 줄지 않았습니다)",
+          answer.status === "clarify"
+            ? "무엇을 묻는지 조금 더 구체적으로 적어 주세요."
+            : answer.status === "rejected"
+              ? "한 번에 물을 수 있는 질문 수를 넘었습니다."
+              : "답변을 만들지 못했습니다. 질문을 조금 바꿔 다시 물어봐 주세요. (질문 횟수는 줄지 않았습니다)",
         remaining: game.remaining,
       };
 
