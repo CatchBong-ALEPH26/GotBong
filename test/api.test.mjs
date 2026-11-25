@@ -348,3 +348,32 @@ test('질문 차감: 차감 없는 응답이 연속 3번이면 다음 응답은 
   await ask('kim', '쉬는 시간에 어디 계셨어요?');
   for (let i = 0; i < 3; i++) assert.equal((await ask('kim', '/모호 again ' + i)).data.used, 0);
 });
+
+test('속마음 안내: 되묻기·반려·오류는 고정 속마음 문장, 같은 기준 연속 3번 낮으면 힌트 한 번', async t => {
+  const { thoughts, hints } = await import('../lib/game/data/thoughts.mjs');
+  const { request, ask, fixCast } = start(t);
+  await request('session');
+  fixCast();
+  const unclear = await ask('kim', '/모호');
+  assert.ok(thoughts.unclear.includes(unclear.data.message), unclear.data.message);
+  const many = await ask('kim', '어디요? 언제요? 누구요? 왜요?');
+  assert.ok(thoughts.tooMany.includes(many.data.message), many.data.message);
+
+  // 포괄적인 질문 3번 → 구체성(G3) 힌트 한 번
+  const vague = [];
+  for (const q of ['쉬는 시간에 뭐 하셨어요?', '그때 뭐 하셨는지 말해 주세요', '그냥 아는 거 다 말해 주세요']) vague.push((await ask('hwangyc', q)).data);
+  assert.deepEqual(vague.map(v => v.status), ['accepted', 'accepted', 'accepted']);
+  assert.equal(vague[0].thought, undefined);
+  assert.equal(vague[1].thought, undefined);
+  assert.ok(hints.G3.includes(vague[2].thought), '세 번째에 구체성 힌트: ' + vague[2].thought);
+  const next = await ask('hwangyc', '또 뭐 하셨어요?');
+  assert.ok(hints.S1.includes(next.data.thought), '다음 기준 하나만: ' + next.data.thought);
+
+  // AI 연결 실패: 기술 원인 대신 속마음
+  env.OPENAI_API_KEY = 'test-only';
+  globalThis.fetch = async () => { throw new TypeError('network down'); };
+  const failed = await ask('kim', '쉬는 시간에 어디 계셨어요?');
+  delete env.OPENAI_API_KEY;
+  assert.equal(failed.code, 502);
+  assert.ok(thoughts.aiError.includes(failed.data.error), failed.data.error);
+});

@@ -20,6 +20,7 @@ import {
   readGameJson,
   commitOrReplay,
 } from "../../../lib/server/game-http.mjs";
+import { say } from "../../../lib/game/data/thoughts.mjs";
 
 const MAX_INPUT = 500;
 
@@ -40,10 +41,7 @@ export async function POST(request) {
     const game = gameId ? await db.getGame(gameId) : null;
 
     if (!game) {
-      throw new GameHttpError(
-        409,
-        "게임 세션이 없습니다. 페이지를 새로고침해 주세요."
-      );
+      throw new GameHttpError(409, say("noSession"));
     }
 
     // 2. 최종 제출 입력을 검사한다.
@@ -93,10 +91,7 @@ export async function POST(request) {
 
     // 이미 종료된 게임에는 다시 제출할 수 없다.
     if (game.result) {
-      throw new GameHttpError(
-        409,
-        "이미 끝난 게임입니다."
-      );
+      throw new GameHttpError(409, say("gameOver", game.revision));
     }
 
     // 4. 범인이 맞을 때만 동기를 채점한다.
@@ -158,20 +153,13 @@ export async function POST(request) {
 
     // AI 모델 호출 실패
     if (error instanceof LlmError) {
-      return json(
-        { error: error.message },
-        502
-      );
+      console.error("동기 채점 AI 호출 실패:", error.message);
+      return json({ error: say("aiError") }, 502);
     }
 
     // 예상하지 못한 서버 오류
     console.error("범인 지목 API 오류:", error);
 
-    return json(
-      {
-        error: "서버 오류입니다. 다시 시도해 주세요.",
-      },
-      500
-    );
+    return json({ error: say("serverError") }, 500);
   }
 }

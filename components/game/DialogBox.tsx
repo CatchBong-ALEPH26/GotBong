@@ -12,10 +12,10 @@ export const emptyDraft: Draft = { question: "", clueId: null };
 export type Dialog =
   | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again"; hint?: boolean }
   | { kind: "prompt"; key: string; text: string }
-  | { kind: "notice"; key: string; text: string } // 다시 물어야 하는 안내 (차감 없음). 써 둔 질문은 남아 있다
+  | { kind: "notice"; key: string; text: string; used?: number } // 탐정 속마음 안내 (되묻기·반려·오류). 써 둔 질문은 남아 있다. used: 이번에 쓴 질문 수(연속 무차감 뒤 1회)
   | { kind: "edit" }
   | { kind: "thinking"; since: number }
-  | { kind: "answer"; messageId: string; animate: boolean };
+  | { kind: "answer"; messageId: string; animate: boolean; used?: number; thought?: string }; // used: 이번 메시지가 쓴 질문 수, thought: 반복 실패 힌트 속마음
 
 /** 하단 레트로 대사창. 관찰문, 안내, 질문 입력, 답변을 같은 자리에서 한 번에 하나씩 보여 준다. */
 export function DialogBox(props: {
@@ -64,9 +64,9 @@ export function DialogBox(props: {
     return (
       <section className="dialog px" aria-live="polite">
         <div className="dialog-main">
-          <span className="px-tag">{suspect?.name ?? "알림"}</span>
+          <span className="px-tag">탐정</span>
           <p className="say">{dialog.text}</p>
-          <p className="found again">▶ 질문 횟수는 줄지 않았다</p>
+          <p className="found again">{dialog.used ? `▶ 질문 ${dialog.used}회 사용` : "▶ 질문 횟수는 줄지 않았다"}</p>
           {suspect && (
             <div className="dialog-foot">
               <span />
@@ -94,6 +94,12 @@ export function DialogBox(props: {
         <div className="dialog-main">
           <span className="px-tag">{suspect.name}</span>
           <PinnableText key={m.id} text={m.answer} animate={dialog.animate} isPinned={pinned} onPin={(s) => onPin(m, s)} />
+          {!!dialog.used && <p className="found again">▶ 질문 {dialog.used}회 사용</p>}
+          {dialog.thought && (
+            <p className="found thought">
+              <PixelIcon name="bulb" size={12} /> {dialog.thought}
+            </p>
+          )}
           <div className="dialog-foot">
             <button className="link-btn" onClick={() => onBacklog(suspect.id)}>수첩에서 기록 보기</button>
             <button className="next-btn" onClick={onAskAgain} aria-label="이어서 묻기">
@@ -151,7 +157,7 @@ export function DialogBox(props: {
               value={draft.question}
               maxLength={view.config.questionMaxLength}
               disabled={blocked}
-              placeholder={left <= 0 ? "질문을 다 썼다. 조사와 수첩 정리, 제출은 할 수 있다." : blocked ? "더 이상 물을 수 없다." : "한 번에 하나씩 물어보자."}
+              placeholder={left <= 0 ? "질문을 다 썼다. 조사와 수첩 정리, 제출은 할 수 있다." : blocked ? "더 이상 물을 수 없다." : "물어볼 것을 적자. 한 번에 세 가지까지 물을 수 있다."}
               onChange={(e) => setDraft({ ...draft, question: e.target.value })}
               onKeyDown={(e) => {
                 // 한글 조합 중 Enter는 보내지 않는다 (Safari는 isComposing 대신 keyCode 229로 알린다)
@@ -166,7 +172,7 @@ export function DialogBox(props: {
             <span className="count">{draft.question.length}/{view.config.questionMaxLength}</span>
           </div>
           <button className="px-btn ask-btn on" onClick={send} disabled={!canSend}>
-            {clue && !draft.question.trim() ? "내밀기 · 1회" : "묻기 · 1회"}
+            {clue && !draft.question.trim() ? "내밀기" : "묻기"}
           </button>
         </div>
       </div>

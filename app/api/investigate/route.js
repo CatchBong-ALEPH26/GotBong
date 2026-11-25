@@ -9,6 +9,7 @@ import {
   getGameId,
   readGameJson,
 } from "../../../lib/server/game-http.mjs";
+import { say } from "../../../lib/game/data/thoughts.mjs";
 
 function json(data, status = 200) {
   return Response.json(data, {
@@ -29,7 +30,7 @@ export async function POST(request) {
     const game = gameId ? await db.getGame(gameId) : null;
 
     if (!game) {
-      throw new GameHttpError(409, "게임 세션이 없습니다. 페이지를 새로고침해 주세요.");
+      throw new GameHttpError(409, say("noSession"));
     }
 
     if (typeof input.spot !== "string" || input.spot.length > 60) {
@@ -51,6 +52,6 @@ export async function POST(request) {
     }
 
     console.error("조사 API 오류:", error);
-    return json({ error: "서버 오류입니다. 다시 시도해 주세요." }, 500);
+    return json({ error: say("serverError") }, 500);
   }
 }

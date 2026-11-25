@@ -151,6 +151,7 @@ img { image-rendering: pixelated; }
 @keyframes blink { 50% { opacity: 0; } }
 .found { font-size: clamp(13px, 1.1cqi, 17px); color: var(--yellow); }
 .found.again { color: var(--line); }
+.found.thought { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; }
 .sentence { display: inline; margin: 0 2px 0 0; padding: 0 1px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; font-size: inherit; line-height: inherit; }
 .sentence:hover, .sentence:focus-visible { background: rgb(255 211 107 / 0.18); box-shadow: inset 0 -3px 0 var(--yellow); outline: none; }
 .sentence.pinned { color: var(--yellow); cursor: default; }

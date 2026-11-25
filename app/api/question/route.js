@@ -4,9 +4,10 @@ import { openD1 } from "../../../lib/server/db-d1.mjs";
 import { characters } from "../../../lib/game/data/characters.mjs";
 import { clues, clueIds } from "../../../lib/game/data/case.mjs";
 import { fill } from "../../../lib/game/josa.mjs";
-import { roleOf, templateVars, chargeFor } from "../../../lib/game/game.mjs";
+import { roleOf, templateVars, chargeFor, lowFlags, updateLows } from "../../../lib/game/game.mjs";
 import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
 import { runQuestion } from "../../../lib/ai/pipeline.mjs";
+import { say, hints, pickThought, rejectThought } from "../../../lib/game/data/thoughts.mjs";
 
 import {
   GameHttpError,
@@ -82,10 +83,7 @@ export async function POST(request) {
     const game = gameId ? await db.getGame(gameId) : null;
 
     if (!game) {
-      throw new GameHttpError(
-        409,
-        "게임 세션이 없습니다. 페이지를 새로고침해 주세요."
-      );
+      throw new GameHttpError(409, say("noSession"));
     }
 
     // 2. 요청 데이터 검증
@@ -152,14 +150,11 @@ export async function POST(request) {
     }
 
     if (game.result) {
-      throw new GameHttpError(409, "이미 끝난 게임입니다.");
+      throw new GameHttpError(409, say("gameOver", game.revision));
     }
 
     if (game.remaining <= 0) {
-      throw new GameHttpError(
-        409,
-        "남은 질문이 없습니다. 최종 추리를 제출할 수 있습니다."
-      );
+      throw new GameHttpError(409, say("noQuestionsLeft", game.revision));
     }
 
     // 5. NPC 역할, 첨부 증거, 이전 대화 확인
@@ -192,15 +187,24 @@ export async function POST(request) {
     const remaining = game.remaining - charge.used;
     const tally = { ...game.tally, free: charge.free };
 
+    // 반복 실패 힌트: 답한 메시지만 센다 (게임 단위, 기준별 연속 3번 낮으면 한 번)
+    let thought;
+    if (answered) {
+      const { lows, hint } = updateLows(game.tally.lows, lowFlags(answer.scored));
+      tally.lows = lows;
+      if (hint) thought = pickThought(hints[hint], game.revision);
+    }
+
     if (!answered) {
       const response = {
         status: answer.status === "clarify" ? "clarify" : "rejected",
+        // 탐정 속마음 고정 문장. 차감 여부는 used 로 알려 준다 (화면이 한 줄로 표시)
         message:
           answer.status === "clarify"
-            ? "무엇을 묻는지 조금 더 구체적으로 적어 주세요."
+            ? say("unclear", game.revision)
             : answer.status === "rejected"
-              ? "한 번에 물을 수 있는 질문 수를 넘었습니다."
-              : "답변을 만들지 못했습니다. 질문을 조금 바꿔 다시 물어봐 주세요.",
+              ? rejectThought(answer.reason, game.remaining, game.revision)
+              : say("answerFailed", game.revision),
         remaining,
         used: charge.used,
       };
@@ -249,6 +253,7 @@ export async function POST(request) {
       turn: publicTurn(turn),
       remaining,
       used: charge.used,
+      ...(thought ? { thought } : {}),
     };
 
     // 10. 대화·상태·요청 기록을 D1에 저장
@@ -276,15 +281,14 @@ export async function POST(request) {
       return json({ error: error.message }, error.status);
     }
 
+    // 기술적인 원인은 로그에만 남기고 화면에는 속마음만 보낸다
     if (error instanceof LlmError) {
-      return json({ error: error.message }, 502);
+      console.error("NPC 질문 AI 호출 실패:", error.message);
+      return json({ error: say("aiError") }, 502);
     }
 
     console.error("NPC 질문 API 오류:", error);
 
-    return json(
-      { error: "서버 오류입니다. 다시 시도해 주세요." },
-      500
-    );
+    return json({ error: say("serverError") }, 500);
   }
 }

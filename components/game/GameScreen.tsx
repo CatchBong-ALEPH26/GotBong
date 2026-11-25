@@ -160,7 +160,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       const r = await actions.ask({ suspectId: target, question: q.question.trim(), clueId: q.clueId });
       if (r.type === "notice") {
         play("notice");
-        setDialog({ kind: "notice", key: `notice-${Date.now()}`, text: r.text });
+        setDialog({ kind: "notice", key: `notice-${Date.now()}`, text: r.text, used: r.used });
         return;
       }
       setDraft(emptyDraft);
@@ -168,7 +168,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       setLastProgress(Date.now());
       setEmptyClicks(0);
       if (r.message.emotion === "flustered") play("fluster");
-      setDialog({ kind: "answer", messageId: r.message.id, animate: true });
+      setDialog({ kind: "answer", messageId: r.message.id, animate: true, used: r.used, thought: r.thought });
     } catch (e) {
       play("notice");
       // 연결이 끊긴 경우(status 0)에는 서버가 처리했을 수도 있다. 같은 내용으로 다시 물으면 중복 차감 없이 이어진다.

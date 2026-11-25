@@ -321,3 +321,67 @@ test('구조화 출력 형식 검사: 목록 밖의 사실 ID·범위 밖 점수
   assert.ok(!checkSchema(JUDGED('case', { s4: 1 }), schema));
   assert.ok(!checkSchema({ ...ok, questions: [{ ...ok.questions[0], s2: '2' }] }, schema));
 });
+
+// ── 속마음 연출 (6장) ─────────────────────────────────────
+
+test('속마음 힌트: 단서 이름·사실 내용·증거 위치·인물·정답 확인·점수가 들어가지 않는다', async () => {
+  const { hints, thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const { characters } = await import('../lib/game/data/characters.mjs');
+  const { clues, caseKeywords } = await import('../lib/game/data/case.mjs');
+  const victimNames = victims;
+  const people = [...Object.values(characters).map(c => c.name), ...victimNames];
+  const givenNames = people.map(n => givenName(n)).filter(n => n.length >= 2);
+  const clueWords = clues.flatMap(c => fill(c.title, { victim: '곽도현' }).split(/[\s()]+/)).filter(w => w.length >= 2 && !/^\d/.test(w));
+  // 사실 문장에만 나오는 사건 고유어 (장소·물건·행동)
+  const factWords = ['수신기', '휴지통', '빌드', '케이블', '룰렛', '소스', '본체', '키보드', '정수기', '자판기', '영수증', '기록지', '충전', '대화방', '시연', '복도', '강사', '교실', '모니터', '실행 파일', '보조배터리'];
+  const confirm = ['맞다', '맞아', '맞는', '가깝', '가까', '정답', '방향', '점수', '근접', '범인', '거의 다', '조금만 더'];
+  const banned = [...new Set([...people, ...givenNames, ...clueWords, ...caseKeywords, ...factWords, ...confirm])];
+  for (const [key, list] of Object.entries(hints)) {
+    assert.ok(list.length >= 3 && list.length <= 4, key + ' 변형 3~4개');
+    for (const line of list) {
+      for (const w of banned) assert.ok(!line.includes(w), `${key} 힌트에 금지어 "${w}": ${line}`);
+      assert.ok(!/\d|[{}()]/.test(line), `${key} 힌트에 숫자·괄호: ${line}`);
+    }
+  }
+  // 모든 속마음: 괄호 없이, 시스템 용어 없이, 상황별 3~4개
+  for (const [key, list] of Object.entries(thoughts)) {
+    assert.ok(list.length >= 3 && list.length <= 4, key + ' 변형 3~4개');
+    for (const line of list) {
+      assert.ok(!/[()]/.test(line), key + ' 괄호: ' + line);
+      assert.ok(!/오류|서버|횟수 초과|제한|에러|세션|요청|API|AI/.test(line), key + ' 시스템 용어: ' + line);
+    }
+  }
+});
+
+test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으면 한 번, 좋은 점수면 초기화, 동시면 하나만', async () => {
+  const { lowFlags, updateLows } = await import('../lib/game/game.mjs');
+  const vague = { kind: 'case', g1: null, g2: null, g3: false, s1: 0, s2: 0, s4: 0 };
+  const good = { kind: 'case', g1: true, g2: null, g3: true, s1: 2, s2: 2, s4: 0 };
+  const chat = { kind: 'chat', g1: null, g2: null, g3: false, s1: 0, s2: 0, s4: 0 };
+  assert.deepEqual(lowFlags([chat]), {}, '잡담은 세지 않는다');
+  assert.deepEqual(lowFlags([vague]), { G3: true, S1: true, S2: true, S4: false });
+  // 메시지 안의 질문 중 하나라도 낮으면 그 메시지는 낮음 (한 메시지는 1회)
+  assert.equal(lowFlags([good, vague]).S2, true);
+
+  let lows = {};
+  let hint;
+  ({ lows, hint } = updateLows(lows, lowFlags([vague])));
+  ({ lows, hint } = updateLows(lows, lowFlags([vague])));
+  assert.equal(hint, null);
+  ({ lows, hint } = updateLows(lows, lowFlags([vague])));
+  assert.equal(hint, 'G3', '동시에 차면 절대 기준이 먼저, 하나만');
+  assert.equal(lows.G3, 0, '보여 준 기준은 0으로');
+  assert.equal(lows.S1, 3, '나머지는 그대로');
+  ({ lows, hint } = updateLows(lows, lowFlags([vague])));
+  assert.equal(hint, 'S1');
+  // 좋은 점수를 받으면 그 기준은 초기화
+  ({ lows } = updateLows({ S2: 2, S4: 2 }, lowFlags([good])));
+  assert.equal(lows.S2, 0);
+  assert.equal(lows.S4, 0);
+  // 유도형은 점수가 가장 낮은 기준이라 S1·S2 보다 먼저
+  ({ hint } = updateLows({ S1: 2, S2: 2, S4: 2 }, { S1: true, S2: true, S4: true }));
+  assert.equal(hint, 'S4');
+  // 해당 없는 기준(첨부 없을 때 G2)은 그대로
+  ({ lows } = updateLows({ G2: 2 }, lowFlags([good])));
+  assert.equal(lows.G2, 2);
+});

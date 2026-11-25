@@ -37,7 +37,8 @@ type Local = {
 const emptyLocal: Local = { started: false, found: {}, spots: {}, checked: [], notes: [], contradictions: [], mine: null };
 
 export type InvestigateResult = { evidence: Evidence | null; isNew: boolean; text: string };
-export type AskResult = { type: "answer"; message: Message } | { type: "notice"; text: string };
+/** used: 이번에 쓴 질문 수, thought: 반복 실패 힌트(탐정 속마음). 둘 다 서버의 선택 필드 */
+export type AskResult = { type: "answer"; message: Message; used?: number; thought?: string } | { type: "notice"; text: string; used?: number };
 
 export type GameActions = {
   beginInvestigation: () => void;
@@ -68,13 +69,13 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
     const signal = AbortSignal.timeout(TIMEOUT_MS);
     res = await fetch(path, body === undefined ? { cache: "no-store", signal } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   } catch (e) {
-    if ((e as Error).name === "TimeoutError") throw new ApiError(0, "응답이 너무 늦다. 잠시 뒤 다시 시도해 줘.");
-    throw new ApiError(0, "서버에 연결하지 못했다. 인터넷 연결을 확인해 줘.");
+    if ((e as Error).name === "TimeoutError") throw new ApiError(0, "대답이 너무 늦다. 잠시 뒤에 다시 해 보자.");
+    throw new ApiError(0, "연락이 닿지 않는다. 연결 상태를 확인하고 다시 해 보자.");
   }
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "서버에서 문제가 생겼다. 잠시 뒤 다시 시도해 줘." : "요청을 처리하지 못했다."));
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? (res.status >= 500 ? "잠깐 정신이 멍했다. 조금 뒤에 다시 해 보자." : "뭔가 어긋났다. 다시 해 보자."));
   // 성공 응답인데 JSON 객체가 아니면(HTML 오류 페이지 등) 성공으로 다루지 않는다.
-  if (!data || typeof data !== "object") throw new ApiError(res.status, "서버 응답을 읽지 못했다. 잠시 뒤 다시 시도해 줘.");
+  if (!data || typeof data !== "object") throw new ApiError(res.status, "무슨 말인지 알아듣지 못했다. 잠시 뒤에 다시 해 보자.");
   return data as T;
 }
 
@@ -278,15 +279,15 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const q = question.trim() || "이것 좀 보세요.";
     const fingerprint = JSON.stringify(["q", suspectId, q, clueId]);
     const body = { npc: suspectId, question: q, attach, requestId: requestId(fingerprint) };
-    const r = await api<{ status: "accepted" | "clarify" | "rejected"; turn?: ServerTurn; message?: string; remaining: number }>("/api/question", body);
+    const r = await api<{ status: "accepted" | "clarify" | "rejected"; turn?: ServerTurn; message?: string; remaining: number; used?: number; thought?: string }>("/api/question", body);
     pending.current.delete(fingerprint);
     if (r.status !== "accepted" || !r.turn) {
       setSession((s) => s && { ...s, remaining: r.remaining });
-      return { type: "notice", text: r.message ?? "다시 물어봐 줘." };
+      return { type: "notice", text: r.message ?? "다시 물어보자.", used: r.used };
     }
     const turn = r.turn;
     setSession((s) => s && { ...s, remaining: r.remaining, turns: s.turns.some((t) => t.id === turn.id) ? s.turns : [...s.turns, turn] });
-    return { type: "answer", message: toMessage(turn, sessionRef.current?.turns.length ?? 0) };
+    return { type: "answer", message: toMessage(turn, sessionRef.current?.turns.length ?? 0), used: r.used, thought: r.thought };
   }, []);
 
   const accuse = useCallback(
