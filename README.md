@@ -18,7 +18,7 @@ Set-Content .dev.vars "OPENAI_API_KEY=<키>"   # .dev.vars 는 Git 제외. 채�
 npm run dev:ai                                 # GOTBONG_LOCAL_AI=1 로 비밀 값을 선언하고 개발 서버 실행
 ```
 오른쪽 위 "테스트 모드" 표시가 사라지고 `/api/session`의 `mode`가 `openai`면 연결된 것이다. 평소 `npm run dev`·빌드·배포에는 선언이 들어가지 않는다(`cloudflare.config.ts`).
-해금 판정만 따로 재 보려면 `.env`에 같은 키를 두고 `node --env-file=.env scripts/judge-probe.mjs --max-calls=20` (결과: `docs/game/eval/judge-probe-*.md`).
+해금 판정만 따로 재 보려면 `.env`에 같은 키를 두고 `node --env-file=.env scripts/judge-probe.mjs --max-calls=20` (결과: `docs/game/eval/judge-probe-*.md`), 캐시 적중은 `scripts/cache-probe.mjs`. 실제 호출은 모두 장부 `docs/game/eval/ai-calls.jsonl`에 남고 누적 상한(`AI_CALL_BUDGET`, 기본 60)에서 멈춘다. **자동 테스트는 실제 AI를 부르지 않는다.**
 키가 없으면 오른쪽 위에 "테스트 모드"가 뜨고 고정 응답(Fixture)이 온다. 배포·운영 D1·AI 키 정책은 [`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md).
 
 ## 조작
