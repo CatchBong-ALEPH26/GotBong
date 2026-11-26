@@ -117,9 +117,9 @@ test('세션: 쿠키 발급, 사람 ID만 노출, 실명·피해자 치환, 사�
   assert.equal(data.clues.length, 5);
   assert.equal(data.victim, '곽도현');
   assert.match(data.intro, /곽도현이/);
-  // 단서 카드는 찾기 전에 브라우저로 가므로 범인(D=황건희) 이름이 없어야 한다
+  // 단서 카드는 찾기 전에 브라우저로 가므로 범인(D=건희) 이름이 없어야 한다
   const build = data.clues.find(c => c.id === 'build');
-  assert.ok(!/황건희/.test(build.title + build.detail), '빌드 기록 카드에 범인 이름 유출');
+  assert.ok(!/건희/.test(build.title + build.detail), '빌드 기록 카드에 범인 이름 유출');
   assert.match(data.gameKey, /^[a-f0-9]{20}$/);
   assert.ok(!cookieOf(first).includes(data.gameKey), '게임 키는 쿠키의 게임 ID가 아니다');
   assert.equal(data.mode, 'fixture');
@@ -151,7 +151,7 @@ test('질문: 반려·명확화는 차감 없음, 멱등성, 첨부로 해금, �
   assert.equal(again.data.remaining, 19, '재시도는 차감하지 않는다');
   assert.equal((await request('question', { ...body, question: '다른 질문' })).code, 409);
 
-  // D의 "A가 왔었다"를 A(김봉경)에게 첨부 → A 해금
+  // D의 "A가 왔었다"를 A(봉경)에게 첨부 → A 해금
   const a1 = await ask('kim', '이 말 사실이에요?', { type: 'turn', id: d0.data.turn.id });
   assert.equal(a1.data.status, 'accepted');
   assert.ok(unlocked('A').includes('a_testimony'));
@@ -201,7 +201,7 @@ test('최종 제출: 사람 ID로 판정, 채점 실패는 0점이 아닌 502, �
 
   const ok = await request('submit', answer);
   assert.equal(ok.data.result.score, 1);
-  assert.equal(ok.data.result.cast.find(c => c.role === 'D').name, '황건희');
+  assert.equal(ok.data.result.cast.find(c => c.role === 'D').name, '건희');
   assert.deepEqual(ok.data.result.progress, { solved: [{ id: 'core_01', title: '사라진 30초' }], total: 4 });
   assert.deepEqual((await request('session')).data.result.progress, ok.data.result.progress, '새로고침해도 결과에 남는다');
   assert.equal((await request('submit', answer)).data.result.score, 1, '같은 요청 ID 재시도는 같은 결과');

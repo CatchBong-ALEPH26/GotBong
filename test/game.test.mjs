@@ -61,11 +61,11 @@ test('정답 유출 방지: 공개 정보에 역할 ID·순서가 드러나지 �
   }
 });
 
-test('호칭: 황윤찬은 씨, 나머지는 님', () => {
+test('호칭: 윤찬은 씨, 나머지는 님', () => {
   const game = { cast: { A: 'hwangyc', B: 'kim', C: 'won', D: 'hwanggh' }, victim: '곽도현' };
   assert.match(addressTable(game, 'hwangyc'), /곽도현 → "도현씨"/);
-  assert.match(addressTable(game, 'kim'), /황건희 → "건희님"/);
-  assert.match(addressTable(game, 'won'), /김봉경 → "봉경님"/);
+  assert.match(addressTable(game, 'kim'), /건희 → "건희님"/);
+  assert.match(addressTable(game, 'won'), /봉경 → "봉경님"/);
 });
 
 // 모델 판정 한 질문 (기본: 해당 사실을 만점으로 겨눔)
