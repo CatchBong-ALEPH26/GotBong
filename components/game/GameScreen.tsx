@@ -8,7 +8,7 @@ import { DialogBox, emptyDraft, type Dialog, type Draft } from "./DialogBox";
 import { EvidenceBag } from "./EvidenceBag";
 import { Notebook, PAGE_LOG, emptyAccuseDraft, type AccuseDraft } from "./Notebook";
 import { Closeup } from "./Closeup";
-import { GhostCutscene, IntroScreen } from "./IntroScreen";
+import { IntroScreen } from "./IntroScreen";
 import { ALL_FOUND_HINT, HINTS, HINT_ORDER, fillVictim } from "@/lib/scene/classroom";
 import { play, setBgm } from "@/lib/audio/sound";
 
@@ -41,7 +41,6 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   const [nbPage, setNbPage] = useState(0);
   const [logSuspect, setLogSuspect] = useState(view.scenario.suspects[0].id);
   const [accuse, setAccuse] = useState<AccuseDraft>(emptyAccuseDraft);
-  const [cutscene, setCutscene] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // 막힘 감지: 마지막으로 새 단서를 찾은 시각, 연달아 헛짚은 횟수, 단서별로 보여 준 힌트 단계
@@ -188,7 +187,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     setDialog({ kind: "narrate", key: `hint-${Date.now()}`, title: "생각", text: fillVictim(HINTS[missing][level], view.scenario.victim), hint: true });
   }
   // 'prompt'(누구에게 증거를 내밀지 고르는 중)는 쉬는 상태가 아니다. 자동 힌트가 안내를 덮어쓰지 않게 한다.
-  const idle = !done && !overlay && !closeup && !cutscene && dialog.kind === "narrate";
+  const idle = !done && !overlay && !closeup && dialog.kind === "narrate";
   const stuckMs = tick - lastProgress;
   const hintReady = !!missing && (stuckMs > HINT_GLOW_MS || emptyClicks >= EMPTY_CLICKS_GLOW);
 
@@ -255,7 +254,6 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
           play("open");
           setLastProgress(Date.now());
           actions.beginInvestigation();
-          setCutscene(true);
         }}
       />
     );
@@ -309,7 +307,6 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
             onPin={pin}
           />
         </div>
-        {cutscene && <GhostCutscene onDone={() => setCutscene(false)} />}
       </div>
 
       {overlay?.kind === "bag" && <EvidenceBag view={view} target={target} selectedId={draft.clueId} onUse={present} onClose={() => setOverlay(null)} />}
