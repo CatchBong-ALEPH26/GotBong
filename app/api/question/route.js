@@ -45,6 +45,11 @@ async function resolveAttach(db, game, npc, attach) {
       throw new GameHttpError(400, "없는 단서입니다.");
     }
 
+    // 현장에서 찾은(조사 API가 기록한) 단서만 내밀 수 있다
+    if (!game.cluesFound.includes(attach.id)) {
+      throw new GameHttpError(400, say("clueNotFound"));
+    }
+
     const clue = clues.find((c) => c.id === attach.id);
 
     const vars = templateVars(game);

@@ -159,7 +159,13 @@ test('질문: 반려·명확화는 차감 없음, 멱등성, 첨부로 해금, �
   // 자기 발언 첨부 금지, 없는 단서 금지
   assert.equal((await ask('hwanggh', '?', { type: 'turn', id: d0.data.turn.id })).code, 400);
   assert.equal((await ask('won', '이거 봐요', { type: 'clue', id: 'nope' })).code, 400);
-  // 단서 첨부
+  // 단서 첨부: 현장에서 찾기 전에는 내밀 수 없다 (차감 없음)
+  const { thoughts } = await import('../lib/game/data/thoughts.mjs');
+  const early = await ask('hwangyc', '이 기록 설명해 주세요', { type: 'clue', id: 'source' });
+  assert.equal(early.code, 400);
+  assert.ok(thoughts.clueNotFound.includes(early.data.error), early.data.error);
+  assert.ok(!unlocked('B').includes('b_source'));
+  assert.equal((await request('investigate', { spot: 'desk-recent' })).data.clue.id, 'source');
   await ask('hwangyc', '이 기록 설명해 주세요', { type: 'clue', id: 'source' });
   assert.ok(unlocked('B').includes('b_source'));
 
@@ -182,9 +188,21 @@ test('최종 제출: 사람 ID로 판정, 채점 실패는 0점이 아닌 502, �
   assert.equal((await request('session')).data.result, null);
   delete env.OPENAI_API_KEY;
 
+  // 밝혀낸 모순은 제출 전에는 어디에도 보내지 않는다 (범인 쪽 정보)
+  const before = await request('session');
+  assert.ok(!JSON.stringify(before.data).includes('core_0'), '제출 전 세션에 모순 진행도 없음');
+
+  // 첫 모순(자리 이탈 핑계)을 푼 상태에서 제출
+  const id = db.sql.prepare('SELECT id, state FROM games').get();
+  const state = JSON.parse(id.state);
+  state.D.unlocked.push('d_cable_excuse');
+  db.sql.prepare('UPDATE games SET state = ? WHERE id = ?').run(JSON.stringify(state), id.id);
+
   const ok = await request('submit', answer);
   assert.equal(ok.data.result.score, 1);
   assert.equal(ok.data.result.cast.find(c => c.role === 'D').name, '황건희');
+  assert.deepEqual(ok.data.result.progress, { solved: [{ id: 'core_01', title: '사라진 30초' }], total: 4 });
+  assert.deepEqual((await request('session')).data.result.progress, ok.data.result.progress, '새로고침해도 결과에 남는다');
   assert.equal((await request('submit', answer)).data.result.score, 1, '같은 요청 ID 재시도는 같은 결과');
   assert.equal((await request('submit', { ...answer, requestId: 'submit-0002' })).code, 409);
 
@@ -274,6 +292,32 @@ test('조사: 빌드 기록은 범인 자리 모니터에서만, 서버가 판�
   }
   assert.equal((await request('investigate', { spot: 'desk' })).data.clue, null);
   assert.equal((await request('investigate', { spot: 42 })).code, 400);
+});
+
+test('조사 기록: 찾은 단서를 서버에 한 번만 기록, revision 은 그대로(기다리던 질문과 충돌 없음), 세션에 found', async t => {
+  const { db, request, ask, fixCast, jar } = start(t);
+  await request('session');
+  fixCast();
+  const row = () => db.sql.prepare('SELECT revision, clues_found FROM games WHERE id = ?').get(jar.game);
+  const before = row().revision;
+  // 고정된 곳(공용 표)과 사람 모니터 모두 서버가 판정해 기록한다. 같은 단서를 두 곳·여러 번 눌러도 한 번만
+  assert.equal((await request('investigate', { spot: 'desk-folder' })).data.clue.id, 'trash');
+  assert.equal((await request('investigate', { spot: 'desk-trash' })).data.clue.id, 'trash');
+  assert.equal((await request('investigate', { spot: 'monitor-hwanggh' })).data.clue.id, 'build');
+  assert.equal((await request('investigate', { spot: 'monitor-kim' })).data.clue, null);
+  assert.deepEqual(JSON.parse(row().clues_found), ['trash', 'build']);
+  assert.equal(row().revision, before, '조사는 revision 을 올리지 않는다');
+  assert.deepEqual((await request('session')).data.found, ['trash', 'build']);
+
+  // 질문 저장은 state 를 덮어써도 찾은 단서 기록을 지우지 않는다 (다른 열)
+  assert.equal((await ask('hwanggh', '이 기록 설명해 주세요', { type: 'clue', id: 'trash' })).code, 200);
+  assert.deepEqual(JSON.parse(row().clues_found), ['trash', 'build']);
+
+  // 새 게임은 빈 기록으로 시작, 이전 방 기록은 남는다
+  const old = jar.game;
+  const next = await request('reset', {});
+  assert.deepEqual(next.data.found, []);
+  assert.deepEqual(JSON.parse(db.sql.prepare('SELECT clues_found FROM games WHERE id = ?').get(old).clues_found), ['trash', 'build']);
 });
 
 test('방 수 제한: 사람당 진행 중 2개, 서비스 전체 MAX_ACTIVE_ROOMS, 휴면 방은 세지 않는다', async t => {

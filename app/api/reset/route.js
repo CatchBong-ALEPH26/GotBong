@@ -47,6 +47,7 @@ export async function POST(request) {
       remaining: game.remaining,
       maxQuestions: MAX_QUESTIONS,
       turns: [],
+      found: [],
       result: null,
     };
 

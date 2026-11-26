@@ -29,15 +29,8 @@ export const CLUE_META: Record<string, { icon: string; place: string; order: num
   chat: { icon: icon(8), place: "{victim}의 메신저", order: 930, timeLabel: "09:30" },
 };
 
-/** 누른 곳 → 단서 카드 id. 사람 모니터(monitor-<사람 ID>)는 서버(/api/investigate)가 판정한다(빌드 기록은 범인 자리의 모니터에서 나온다). */
-export const SPOT_TO_CLUE: Record<string, string> = {
-  "desk-folder": "trash",
-  "desk-trash": "trash",
-  "desk-recent": "source",
-  "desk-chat": "chat",
-  receiver: "receiver",
-  board: "receiver",
-};
+// 누른 곳 → 단서 카드는 서버가 판정하고 기록한다(/api/investigate). 표는 lib/game/data/spots.mjs 하나뿐이다.
+// 새 단서 자리를 만들면 hotspots·closeups 의 id 를 그 표에 추가한다.
 
 /** 단서가 없는 곳의 관찰문. {victim}은 피해자 이름으로 바뀐다. */
 export const SPOT_TEXT: Record<string, string> = {

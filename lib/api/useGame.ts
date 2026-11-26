@@ -1,16 +1,23 @@
 "use client";
 
 // 게임 API(app/api/*)에 붙는 게임 상태. 명세: docs/game/HANDOFF.md §3, 연결 안내: docs/game/INTEGRATION.md
-// 서버가 아는 것: 사건 소개, 단서 카드 5장, 용의자, 대화 기록, 남은 질문, 결과.
-// 화면만 아는 것(이 브라우저의 localStorage): 수사 시작 여부, 장면에서 찾은 단서, 밑줄 메모, 연필 선, 내가 낸 답.
+// 서버가 아는 것: 사건 소개, 단서 카드 5장, 용의자, 대화 기록, 남은 질문, 결과, 현장에서 찾은 단서(found).
+// 화면만 아는 것(이 브라우저의 localStorage): 수사 시작 여부, 단서를 찾은 시각·자리, 밑줄 메모, 연필 선, 내가 낸 답.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Accusation, Contradiction, Emotion, Evidence, GameView, Message, Note, PublicScenario } from "@/lib/view/types";
-import { CLUE_META, RULES, SPOT_TEXT, SPOT_TO_CLUE, SUGGESTIONS, TESTIMONY_ICON, art, classroom, closeups, fillVictim } from "@/lib/scene/classroom";
+import { CLUE_META, RULES, SPOT_TEXT, SUGGESTIONS, TESTIMONY_ICON, art, classroom, closeups, fillVictim } from "@/lib/scene/classroom";
 
 // ---------- 서버 응답 형태 (HANDOFF.md §3) ----------
 type ServerAttach = { type: "clue"; id: string; title: string } | { type: "turn"; id: string; npc: string; reply: string } | null;
 type ServerTurn = { id: string; npc: string; question: string; reply: string; emotion: string; attach: ServerAttach };
-type ServerResult = { score: 0 | 1; grader?: "fixture" | "gemini" | "openai" | null; truth: string; cast: { npc: string; name: string; role: string; title: string }[] };
+type ServerResult = {
+  score: 0 | 1;
+  grader?: "fixture" | "gemini" | "openai" | null;
+  truth: string;
+  cast: { npc: string; name: string; role: string; title: string }[];
+  /** 밝혀낸 모순 (제출 뒤에만 옴, 화면 표시는 아직 없음) */
+  progress?: { solved: { id: string; title: string }[]; total: number };
+};
 export type Session = {
   intro: string;
   victim: string;
@@ -22,6 +29,8 @@ export type Session = {
   remaining: number;
   maxQuestions: number;
   turns: ServerTurn[];
+  /** 서버에 기록된, 현장에서 찾은 단서 카드 id. 질문에는 이 단서만 내밀 수 있다 (예전 서버면 없음) */
+  found?: string[];
   result: ServerResult | null;
   /** 차단된 방이면 { reason, message } (선택 필드) */
   closed?: { reason: "expired" | "admin"; message: string };
@@ -165,8 +174,27 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const pending = useRef(new Map<string, string>());
 
   const adopt = useCallback((s: Session) => {
-    keyRef.current = storageKey(s);
-    setLocal(loadLocal(keyRef.current));
+    const key = storageKey(s);
+    keyRef.current = key;
+    const saved = loadLocal(key);
+    if (s.found) {
+      // 서버가 기록한 단서는 이 브라우저에 없어도 수첩에 보인다 (다른 기기·지운 저장소)
+      const found = { ...saved.found };
+      for (const id of s.found) if (!(id in found)) found[id] = Date.now();
+      const local = { ...saved, found };
+      setLocal(local);
+      saveLocal(key, local);
+      // 서버 기록 전(예전 버전)에 이 브라우저에서만 찾은 단서는 찾은 자리를 다시 조사해 서버에 등록한다.
+      // 등록하지 못하면(방 차단 등) 수첩에는 남지만 질문에 내밀 수는 없다.
+      if (!s.result && !s.closed) {
+        for (const id of Object.keys(saved.found)) {
+          const spot = saved.spots[id];
+          if (!s.found.includes(id) && spot) api("/api/investigate", { spot }).catch(() => undefined);
+        }
+      }
+    } else {
+      setLocal(saved);
+    }
     setSession(s);
   }, []);
 
@@ -264,14 +292,11 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const investigate = useCallback(
     async (spotId: string): Promise<InvestigateResult> => {
       const s = sessionRef.current!;
-      let clueId = SPOT_TO_CLUE[spotId];
-      let text = SPOT_TEXT[spotId];
-      if (spotId.startsWith("monitor-")) {
-        // 어느 사람의 모니터에 단서가 있는지는 범인을 알아야 정할 수 있어서 서버가 판정한다.
-        const r = await api<{ clue: { id: string } | null }>("/api/investigate", { spot: spotId });
-        if (r.clue) clueId = r.clue.id;
-        else text = SPOT_TEXT.monitor;
-      }
+      // 어디에 어떤 단서가 있는지는 서버가 판정하고, 찾은 단서를 기록한다 (기록된 단서만 질문에 내밀 수 있다).
+      // 사람 모니터는 범인을 알아야 정할 수 있어서 화면이 미리 알 수 없다.
+      const r = await api<{ clue: { id: string } | null }>("/api/investigate", { spot: spotId }).catch(markClosed);
+      const clueId = r.clue?.id ?? "";
+      const text = clueId ? undefined : spotId.startsWith("monitor-") ? SPOT_TEXT.monitor : SPOT_TEXT[spotId];
       const isNew = !!clueId && !(clueId in local.found);
       const at = local.found[clueId] ?? Date.now();
       update((l) => ({
@@ -283,7 +308,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
       const evidence = clueId ? clueEvidence(s, clueId, at, local.spots[clueId] ?? spotId) : null;
       return { evidence, isNew, text: evidence?.text ?? fillVictim(text ?? "특별한 건 없어 보인다.", s.victim) };
     },
-    [local.found, local.spots, update],
+    [local.found, local.spots, update, markClosed],
   );
 
   const ask = useCallback<GameActions["ask"]>(async ({ suspectId, question, clueId }) => {
