@@ -57,8 +57,9 @@ export async function GET(request) {
       remaining: game.remaining,
       maxQuestions: MAX_QUESTIONS,
       turns: turns.map(publicTurn),
-      // 현장에서 찾은 단서 카드 id (서버 기록). 찾기 전 카드 내용은 clues 에 이미 있으므로 새로 드러나는 정보는 없다
-      found: game.cluesFound,
+      // 현장에서 찾은 단서 카드 id (서버 기록). 찾기 전 카드 내용은 clues 에 이미 있으므로 새로 드러나는 정보는 없다.
+      // 기록 열이 없는 D1(0006 적용 전)이면 보내지 않는다 → 화면은 예전처럼 이 브라우저 기록만 쓴다
+      ...(game.cluesFound ? { found: game.cluesFound } : {}),
       result: game.result,
       // 선택 필드: 차단(만료·관리자)된 방이면 { reason, message }. 화면은 새 게임만 권한다.
       ...(closed && !game.result ? { closed } : {}),

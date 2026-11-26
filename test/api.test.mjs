@@ -34,10 +34,11 @@ const routes = {
 };
 
 // D1 바인딩에서 db-d1.mjs가 쓰는 부분만 구현: prepare().bind().first/all/run, batch(트랜잭션)
-function fakeD1() {
+// skip: 적용하지 않을 마이그레이션 파일 이름 (운영 D1에 아직 없는 상태를 흉내 낸다)
+function fakeD1({ skip = [] } = {}) {
   const sql = new DatabaseSync(':memory:');
   const dir = new URL('../migrations/', import.meta.url);
-  for (const file of readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) {
+  for (const file of readdirSync(dir).filter(f => f.endsWith('.sql') && !skip.includes(f)).sort()) {
     sql.exec(readFileSync(new URL(file, dir), 'utf8'));
   }
   const statement = (query, args = []) => ({
@@ -67,8 +68,8 @@ function fakeD1() {
 const CAST = { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' };
 const cookieOf = r => r.headers.get('set-cookie') ?? '';
 
-function start(t) {
-  const db = fakeD1();
+function start(t, d1 = {}) {
+  const db = fakeD1(d1);
   for (const key of Object.keys(env)) delete env[key];
   env.DB = db;
   const realFetch = globalThis.fetch;
@@ -292,6 +293,23 @@ test('조사: 빌드 기록은 범인 자리 모니터에서만, 서버가 판�
   }
   assert.equal((await request('investigate', { spot: 'desk' })).data.clue, null);
   assert.equal((await request('investigate', { spot: 42 })).code, 400);
+});
+
+test('0006 적용 전 D1: 조사·단서 첨부가 멈추지 않고 예전처럼 동작 (배포와 마이그레이션 순서가 바뀌어도 안전)', async t => {
+  const { db, request, ask, fixCast } = start(t, { skip: ['0006_clues_found.sql'] });
+  assert.ok(!db.sql.prepare('PRAGMA table_info(games)').all().some(c => c.name === 'clues_found'), '열 없음');
+  const s = await request('session');
+  assert.equal(s.code, 200);
+  assert.equal(s.data.found, undefined, '기록이 없으면 found 를 보내지 않는다 (화면은 브라우저 기록만 씀)');
+  fixCast();
+  // 단서 있는 곳을 눌러도 500 이 아니라 카드가 나온다 (기록만 건너뜀)
+  const hit = await request('investigate', { spot: 'desk-recent' });
+  assert.equal(hit.code, 200);
+  assert.equal(hit.data.clue.id, 'source');
+  // 찾은 기록을 확인할 수 없으니 예전처럼 첨부를 받는다
+  const attached = await ask('hwangyc', '이 기록 설명해 주세요', { type: 'clue', id: 'trash' });
+  assert.equal(attached.code, 200);
+  assert.equal((await request('reset', {})).data.found, undefined);
 });
 
 test('조사 기록: 찾은 단서를 서버에 한 번만 기록, revision 은 그대로(기다리던 질문과 충돌 없음), 세션에 found', async t => {

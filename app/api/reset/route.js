@@ -47,7 +47,8 @@ export async function POST(request) {
       remaining: game.remaining,
       maxQuestions: MAX_QUESTIONS,
       turns: [],
-      found: [],
+      // 기록 열이 없는 D1(0006 적용 전)이면 보내지 않는다 (세션 API와 같음)
+      ...(game.cluesFound ? { found: game.cluesFound } : {}),
       result: null,
     };
 
