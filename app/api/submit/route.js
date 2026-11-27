@@ -9,6 +9,7 @@ import {
   motiveText,
   truthText,
   revealCast,
+  progressOf,
 } from "../../../lib/game/game.mjs";
 
 import { modelFromEnv, LlmError } from "../../../lib/ai/llm.mjs";
@@ -125,6 +126,8 @@ export async function POST(request) {
       grader,
       truth: truthText(game),
       cast: revealCast(game),
+      // 밝혀낸 모순 (해금 기록에서 계산). 범인 쪽 정보라 제출 뒤에만 보낸다
+      progress: progressOf(game.state),
     };
 
     const response = { result };

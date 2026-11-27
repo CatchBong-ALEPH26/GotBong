@@ -20,9 +20,10 @@ function json(data, status = 200) {
   });
 }
 
-// 장면에서 사람마다 달라지는 곳(용의자 모니터)을 조사한다.
-// 어느 모니터에 빌드 기록이 있는지는 범인을 알아야 정할 수 있으므로 화면이 아니라 서버가 판정한다.
-// 읽기만 하고 저장하지 않는다 (찾은 단서는 화면의 localStorage에 남는다).
+// 장면의 한 곳을 조사한다. 어디에 어떤 단서가 있는지는 모두 서버가 판정하고(사람 모니터는 범인 배정에 따라 달라짐),
+// 찾은 단서는 games.clues_found 에 기록한다. 질문에는 여기 기록된 단서만 첨부할 수 있다.
+// 기록은 항목 추가 한 문장이라 같은 곳을 여러 번 눌러도 한 번만 남고(멱등), revision 을 바꾸지 않아
+// 답을 기다리던 질문 저장과 충돌하지 않는다. 그래서 요청 ID 기록은 쓰지 않는다.
 export async function POST(request) {
   try {
     const input = await readGameJson(request);
@@ -44,6 +45,9 @@ export async function POST(request) {
 
     const clueId = clueAtSpot(game, input.spot);
     if (!clueId) return json({ clue: null });
+
+    // 제출이 끝난 게임은 기록하지 않는다 (카드 내용은 보여 준다)
+    if (!game.result) await db.addFoundClue(game.id, clueId);
 
     const clue = clues.find((c) => c.id === clueId);
     const vars = templateVars(game);

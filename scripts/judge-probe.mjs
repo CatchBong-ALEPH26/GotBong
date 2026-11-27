@@ -38,24 +38,24 @@ const clue = id => { const c = clues.find(x => x.id === id); return { type: 'clu
 // evidence: 지난 대화에서 이 NPC에게 이미 보여 준 첨부 (서버는 state.evidence 에 누적한다)
 const unlockedWith = (roleId, ids, evidence = []) => ({ ...initialState(), [roleId]: { unlocked: [...initialState()[roleId].unlocked, ...ids], evidence } });
 
-// expect: 'unlock' | 'near' | 'none' (target 사실 기준), count: 기대 질문 수, unclear: 되묻기 기대
+// expect: 'unlock' | 'near' | 'none' (target 사실 기준). 필요 근거를 내밀지 않았으면 G4 로 'none' (12.11), count: 기대 질문 수, unclear: 되묻기 기대
 const probes = [
   { name: '정확+근거(첨부)', role: 'A', target: 'a_testimony', expect: 'unlock',
     attach: turn('D', 'd_points_a'), q: '{D}님이 {A}님이 쉬는 시간에 {victim}님 자리에 왔다 갔다고 하던데요. 그때 교실 안에 들어오셨던 거죠?' },
-  { name: '정확·근거 없음', role: 'A', target: 'a_testimony', expect: 'near',
+  { name: '정확·근거 없음', role: 'A', target: 'a_testimony', expect: 'none',
     q: '쉬는 시간 중간쯤에 교실 안에 잠깐 들어온 적 있죠?' },
   { name: '애매(포괄)', role: 'A', target: null, expect: 'none', q: '쉬는 시간에 뭐 하셨어요?' },
   { name: '엉뚱(잡담)', role: 'A', target: null, expect: 'none', q: '점심은 보통 뭐 드세요?' },
   { name: '일반+단서', role: 'B', target: 'b_source', expect: 'unlock',
     attach: clue('source', '소스 열람 기록'), q: '이 기록 보면 09:47에 {victim}님 컴퓨터에서 소스 파일이 열렸는데, 그거 열어 보신 거예요?' },
-  { name: '일반·근거 없음', role: 'B', target: 'b_source', expect: 'near', q: '{victim}님 컴퓨터에서 소스 파일 열어 보셨어요?' },
+  { name: '일반·근거 없음', role: 'B', target: 'b_source', expect: 'none', q: '{victim}님 컴퓨터에서 소스 파일 열어 보셨어요?' },
   { name: '중요+단서', role: 'B', target: 'b_typing', expect: 'unlock',
     attach: clue('build', '모니터의 빌드 기록'), q: '{D}님 모니터 빌드 기록을 보면 09:49 이후로 키 입력이 없던데, 그때 {D}님이 자리에서 뭘 하고 있었는지 보셨어요?' },
   { name: '중요+증언', role: 'C', target: 'c_cable', expect: 'unlock',
     attach: turn('D', 'd_cable_excuse'), q: '{D}님이 {C}님 충전 케이블이 엉켜서 정리해 줬다는데, 케이블이 엉킨 적 있어요?' },
   { name: '첨부 불일치', role: 'C', target: 'c_roulette', expect: 'none',
     attach: clue('build'), q: '충전기 꽂을 때 {victim}님 컴퓨터에 룰렛이 켜져 있었어요?' },
-  { name: '유도·근거 없음', role: 'D', target: 'd_receiver', expect: 'none-or-near',
+  { name: '유도·근거 없음', role: 'D', target: 'd_receiver', expect: 'none',
     state: unlockedWith('D', ['d_cable_excuse']), q: '당신이 키보드 수신기를 {victim}님 컴퓨터 뒤에 꽂았죠?' },
   { name: '중요+누적 근거', role: 'D', target: 'd_receiver', expect: 'unlock', counts: [1, 2],
     state: unlockedWith('D', ['d_cable_excuse'], ['clue:receiver']),

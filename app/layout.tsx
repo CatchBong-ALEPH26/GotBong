@@ -16,7 +16,7 @@ const pxSmall = localFont({ src: "./fonts/Galmuri9.woff2", variable: "--font-px-
 
 export const metadata: Metadata = {
   title: "방과후 탐정단 · AI 추리게임",
-  description: "학원 교실에서 벌어진 일상 미스터리를 AI 용의자 심문으로 풀어내는 픽셀 추리게임",
+  description: "학원 강의실에서 벌어진 일상 미스터리를 AI 용의자 심문으로 풀어내는 픽셀 추리게임",
 };
 
 export const viewport: Viewport = { themeColor: "#1b1220" };

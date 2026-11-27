@@ -1,0 +1,13 @@
+Proceed without asking questions. Use your image generation tool to create ONE image and save it as out.png in the current directory. Do not write code to draw it.
+
+Task: redraw the attached classroom background (ref.png) for a 16-bit pixel-art adventure game. Keep EXACTLY the same art style, palette, lighting (early-winter daytime), camera viewpoint and perspective, 16:9 landscape, and the same four characters (same hair, clothes, proportions, seen from behind/side, seated at computers). No text, no UI, no labels, no speech bubbles.
+
+Change the room layout as follows:
+1. LEFT WALL: remove the windows completely. The left wall is a plain interior wall (same wall color as the rest of the room), no windows anywhere on it.
+2. RIGHT/BACK WALL: remove the cork bulletin board. No bulletin board anywhere. Instead, a single plain white A4 paper sheet is taped directly on the back wall just to the right of the projector screen (small, plain, a few grey lines, no readable text).
+3. INSTRUCTOR DESK: keep it in the same place (back right, near the door). On the desk, clearly visible to the viewer: a monitor, a black desktop PC tower standing ON TOP of the desk right next to the monitor (the tower must be fully visible, with its front panel facing the viewer), a keyboard, and a small USB flash drive lying on the desk beside the keyboard. The instructor's chair is empty.
+4. STUDENT DESKS: replace the individual student desks with long shared tables arranged in exactly TWO rows (a back row and a front row). Each row has two long tables side by side with an aisle in the middle: the LEFT long table is wider and seats FOUR students side by side (4 monitors, 4 keyboards, 4 PC towers, 4 chairs); the RIGHT long table is shorter and seats THREE students side by side (3 monitors, 3 keyboards, 3 towers, 3 chairs). So 14 seats in total, all facing the projector screen at the front.
+5. CHARACTERS: the same four characters from the reference are seated, spread out: in the back row, the woman with the purple ponytail and beige sweater at the left table, and the black-haired boy in the dark hooded jacket at the right table; in the front row, the short-black-haired boy in the white sweatshirt at the left table, and the wavy brown-haired boy in the black shirt at the right table. All other seats are empty chairs. Characters must not overlap each other.
+6. Keep the projector, the pulled-down projector screen at the front center, the ceiling lights, the glass door on the right, the trash can and the tiled floor as in the reference.
+
+Leave the bottom 20% of the image free of important objects (floor and front-row chair backs only), because a dialogue box covers it. Output size 1536x864 (or the closest 16:9 size available).

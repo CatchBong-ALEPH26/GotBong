@@ -1,10 +1,11 @@
-// 교실 장면 배치 (화면 담당). 사건 내용은 서버가 주고, 여기는 "어디를 누르면 어느 단서 카드가 나오는지"만 정한다.
+// 강의실 장면 배치 (화면 담당). 사건: 랜섬웨어 사건(v3.6). 사건 내용은 서버가 주고, 여기는 "어디를 누를 수 있는지"와 그림만 정한다.
 // 역할(범인 포함)은 게임마다 바뀌므로 여기에는 역할 기준 정보를 두지 않는다. 사람은 서버의 사람 ID로 가리킨다.
 // 좌표는 public/game/scenes/classroom.png(1536×864) 기준 %.
 //
-// 임시 배치: 지금 그림에는 빈 피해자 자리가 없어서 오른쪽 뒤 책상(원래 강사님 책상)을 피해자 자리로 쓴다.
-// 그림을 다시 그리면 VICTIM_DESK 좌표와 people 좌표만 고치면 된다.
-import type { Closeup, Emotion, Scene } from "@/lib/view/types";
+// 배경 구조(2026-11-27): 왼쪽 벽에 창문 없음, 게시판 없음. 긴 책상 2줄(왼쪽 4자리, 오른쪽 3자리). 실제 강의실은 4줄이지만 화면에는 2줄만 그렸다.
+// 강사님 자리는 오른쪽 뒤, 책상 위에 모니터·본체·키보드·USB가 보인다. 멘토링 신청표는 스크린 오른쪽 벽에 붙은 종이.
+// 그림을 다시 그리면 hotspots·people 좌표만 고치면 된다. 그림 지시문: docs/design/drafts/briefs/ransomware-classroom.md
+import type { Closeup, ClueForm, Emotion, Scene } from "@/lib/view/types";
 
 /** 서버 사람 ID → 그림 파일 이름. public/game/{portraits,sprites}/<id>-<표정>.png */
 export const art = (id: string) => {
@@ -19,102 +20,85 @@ export const art = (id: string) => {
 
 const icon = (n: number) => `/game/items/gk-${n}.png`;
 export const TESTIMONY_ICON = icon(11);
+export const CHROME_ICON = "/game/case/chrome.png";
+export const RANSOM_NOTE = "/game/case/ransom-note.png";
 
-/** 서버 단서 카드(clues[].id)를 수첩에 놓을 때 쓰는 그림·시각. 시각은 단서 문구에 적힌 컴퓨터 기록 시각이다. */
-export const CLUE_META: Record<string, { icon: string; place: string; order: number | null; timeLabel?: string }> = {
-  trash: { icon: icon(2), place: "{victim}의 컴퓨터", order: 956, timeLabel: "09:56" },
-  receiver: { icon: icon(3), place: "{victim}의 본체 뒤쪽 · 장비표", order: null },
-  source: { icon: icon(1), place: "{victim}의 컴퓨터", order: 947, timeLabel: "09:47" },
-  build: { icon: icon(9), place: "자리의 모니터", order: 949, timeLabel: "09:49" },
-  chat: { icon: icon(8), place: "{victim}의 메신저", order: 930, timeLabel: "09:30" },
+/**
+ * 서버 단서 카드(clues[].id)를 화면에 놓을 때 쓰는 형태·그림·자리·시각 (시나리오 5.1절).
+ * 시각은 기록에 적힌 대략 표기 그대로다. talk: 현장이 아니라 대화 중에 얻는 단서.
+ */
+export const CLUE_META: Record<string, { form: ClueForm; icon: string; place: string; order: number | null; timeLabel?: string; talk?: boolean }> = {
+  shortcut: { form: "window", icon: icon(9), place: "강사님 모니터", order: 1310, timeLabel: "1시 10분쯤" },
+  usblog: { form: "window", icon: icon(1), place: "강사님 모니터", order: 1305, timeLabel: "1시 5분쯤" },
+  mentoring: { form: "paper", icon: icon(4), place: "벽에 붙은 신청표", order: null },
+  usb: { form: "object", icon: icon(5), place: "강사님 키보드 옆", order: null },
+  message: { form: "phone", icon: icon(8), place: "대화 중에 보여 준 스마트폰", order: null, talk: true },
 };
+/** 자료 형태별 작은 그림 (수첩 표시용). */
+export const FORM_ICON: Record<ClueForm, string> = { window: icon(9), paper: icon(4), object: icon(5), phone: icon(8), files: icon(1) };
 
-/** 누른 곳 → 단서 카드 id. 사람 모니터(monitor-<사람 ID>)는 서버(/api/investigate)가 판정한다(빌드 기록은 범인 자리의 모니터에서 나온다). */
-export const SPOT_TO_CLUE: Record<string, string> = {
-  "desk-folder": "trash",
-  "desk-trash": "trash",
-  "desk-recent": "source",
-  "desk-chat": "chat",
-  receiver: "receiver",
-  board: "receiver",
-};
+// 누른 곳 → 단서 카드는 서버가 판정하고 기록한다(/api/investigate).
+// 이 사건의 단서 자리 id: pc-chrome(바로가기 속성), pc-devices(USB 접속 기록), desk-usb(키보드 옆 USB), mentoring-sheet(신청표).
 
 /** 단서가 없는 곳의 관찰문. {victim}은 피해자 이름으로 바뀐다. */
 export const SPOT_TEXT: Record<string, string> = {
   monitor: "실습 화면이 떠 있다. 눈에 띄는 기록은 없다.",
-  keyboard: "흰색 키보드다. 겉으로 봐서는 누구 것과도 비슷하다.",
-  "victim-kb": "{victim}의 키보드. 이상한 점은 없다.",
-  screen: "스크린이 내려와 있다. 2교시 발표 자료가 띄워질 자리다.",
-  window: "앙상한 가로수 위로 첫눈이 살짝 앉았다.",
-  usb: "USB 메모리. 실습 과제 폴더뿐이다.",
-  phone: "휴대폰이다. 잠겨 있다.",
-  note: "실습 노트. 오늘 수업 필기뿐이다.",
-  "front-usb": "앞쪽 USB 포트. 지금은 비어 있다.",
-  power: "전원 버튼. 컴퓨터는 켜져 있다.",
-  cables: "모니터 선과 전원선. 이상한 점은 없다.",
+  "teacher-kb": "강사님의 키보드. 자판에는 이상한 점이 없다.",
+  "teacher-tower": "강사님 컴퓨터의 본체. USB 포트는 지금 모두 비어 있다.",
+  screen: "스크린이 내려와 있다. 오후 강의 자료가 띄워질 자리였다.",
+  door: "유리문 너머로 복도가 보인다. 계단은 복도 끝에 있다.",
+  trash: "쓰레기통. 구겨진 종이뿐이다.",
+  "pc-file": "열리지 않는다. 파일 이름 뒤에 낯선 글자가 붙어 있다.",
+  "pc-note": "배경 화면이 누군가 장난처럼 남긴 안내문으로 바뀌어 있다. 이것만으로는 누가 했는지 알 수 없다.",
 };
 
 export const classroom: Scene = {
   id: "classroom",
-  name: "교실",
+  name: "강의실",
   background: "/game/scenes/classroom.png",
   width: 1536,
   height: 864,
   hotspots: [
-    { id: "window", label: "창문", x: 0, y: 3.5, w: 30.6, h: 49.7 },
-    { id: "screen", label: "스크린", x: 41.5, y: 13.7, w: 31.1, h: 28.5 },
-    { id: "board", label: "게시판의 교실 장비표", x: 78.8, y: 19.9, w: 8.3, h: 13.3 },
-    // 피해자 자리 (VICTIM_DESK)
-    { id: "victim-desk", label: "{victim}의 본체", x: 72.6, y: 43.5, w: 15.6, h: 14.4, closeup: "tower-front" },
-    { id: "victim-monitor", label: "{victim}의 모니터", x: 75.4, y: 35.2, w: 5.8, h: 9.4, closeup: "victim-desktop" },
-    { id: "victim-kb", label: "{victim}의 키보드", x: 80.1, y: 43.4, w: 4.4, h: 1.8 },
-    // 사람 자리의 모니터와 소품
-    { id: "monitor-kim", label: "모니터", x: 26.4, y: 41.9, w: 6.8, h: 10.2 },
-    { id: "monitor-hwangyc", label: "모니터", x: 57.6, y: 41.9, w: 6.5, h: 9.6 },
-    { id: "monitor-won", label: "모니터", x: 35.5, y: 57.9, w: 8, h: 12.5 },
-    { id: "monitor-hwanggh", label: "모니터", x: 65.6, y: 57.9, w: 8.3, h: 9.8 },
-    { id: "keyboard", label: "키보드", x: 27.3, y: 51.8, w: 4.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 59.4, y: 51.8, w: 4.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 36.1, y: 70.6, w: 6.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 72.9, y: 71.2, w: 5.6, h: 4.6 },
-    { id: "usb", label: "USB 메모리", x: 31.8, y: 51.8, w: 2.6, h: 3 },
-    { id: "phone", label: "휴대폰", x: 43.6, y: 70.8, w: 2.6, h: 3.4 },
-    { id: "note", label: "실습 노트", x: 67.4, y: 51.3, w: 3.9, h: 3.2 },
+    { id: "screen", label: "스크린", x: 37.4, y: 16.2, w: 29.3, h: 25.5 },
+    { id: "mentoring-sheet", label: "벽에 붙은 종이", x: 77.4, y: 20, w: 4.6, h: 9.4 },
+    { id: "door", label: "유리문", x: 92.8, y: 11, w: 7.2, h: 54 },
+    { id: "trash", label: "쓰레기통", x: 88.8, y: 46.6, w: 3.8, h: 11.4 },
+    // 강사님 자리
+    { id: "teacher-monitor", label: "강사님의 모니터", x: 70.6, y: 31.9, w: 6.4, h: 9.6, closeup: "teacher-pc" },
+    { id: "teacher-tower", label: "강사님 컴퓨터 본체", x: 77.6, y: 33, w: 3.3, h: 8.6 },
+    { id: "teacher-kb", label: "강사님의 키보드", x: 72.9, y: 41.3, w: 5.6, h: 2 },
+    { id: "desk-usb", label: "강사님 키보드 옆", x: 79.9, y: 40.3, w: 3, h: 3.2 },
+    // 수강생 자리 (단서 없음)
+    { id: "monitor", label: "수강생 자리의 모니터", x: 12.8, y: 46.2, w: 36, h: 8.6 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 60.6, y: 46.2, w: 23.8, h: 8.6 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 8.2, y: 67.8, w: 40.4, h: 9.4 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 56.4, y: 67.8, w: 32.4, h: 9.4 },
   ],
   people: [
-    { suspectId: "kim", hit: { x: 19.5, y: 39, w: 7.5, h: 30 } },
-    { suspectId: "hwangyc", hit: { x: 52, y: 40, w: 5.5, h: 30 } },
-    { suspectId: "won", hit: { x: 28.6, y: 56, w: 7.5, h: 37 } },
-    { suspectId: "hwanggh", hit: { x: 76, y: 54, w: 9, h: 37 } },
+    { suspectId: "kim", hit: { x: 21.2, y: 42.4, w: 7.6, h: 24.6 } },
+    { suspectId: "hwangyc", hit: { x: 55.2, y: 42.6, w: 8.6, h: 24.8 } },
+    { suspectId: "won", hit: { x: 27.4, y: 61.6, w: 8.8, h: 13 } },
+    { suspectId: "hwanggh", hit: { x: 76.2, y: 61.6, w: 11.2, h: 13 } },
+  ],
+};
+
+/**
+ * 강사님 = 피해자(이름은 서버의 victim). 심문 대상이 아니라 질문·증거·수첩 기록이 없다. 누르면 당황한 말 한두 문장만 한다.
+ * 그림이 아직 없어 여성 실루엣 임시 그림이다. 대사도 시나리오 담당 확인 전 임시 문장이고, 사건 내용은 넣지 않는다.
+ * 자리: 오른쪽 유리문 앞에 쭈그려 앉아 있다.
+ */
+export const TEACHER = {
+  hit: { x: 92.9, y: 46.5, w: 7, h: 19.5 },
+  sprite: "/game/sprites/teacher-crouch.png",
+  portrait: "/game/portraits/teacher-flustered.png",
+  lines: [
+    "어, 어머… 이게 무슨 일이야. 머릿속이 하얘서 아무 생각이 안 나요…",
+    "미, 미안해요! 저도 지금 정신이 하나도 없어서… 조금만 있다가요.",
   ],
 };
 
 export const closeups: Record<string, Closeup> = {
-  "victim-desktop": { id: "victim-desktop", title: "{victim}의 컴퓨터 화면", kind: "screen" },
-  "tower-front": {
-    id: "tower-front",
-    title: "{victim}의 본체 · 앞쪽",
-    kind: "image",
-    background: "/game/closeups/tower-front.png",
-    hotspots: [
-      { id: "front-usb", label: "앞쪽 USB 포트", x: 62, y: 53, w: 18.5, h: 9.5 },
-      { id: "power", label: "전원 버튼", x: 68, y: 35.9, w: 5.6, h: 10.4 },
-      { id: "victim-kb", label: "키보드", x: 0, y: 59, w: 54.7, h: 29 },
-    ],
-    links: [{ label: "뒤쪽 보기", closeup: "tower-back" }],
-  },
-  "tower-back": {
-    id: "tower-back",
-    title: "{victim}의 본체 · 뒤쪽",
-    kind: "image",
-    background: "/game/closeups/tower-back.png",
-    hotspots: [
-      { id: "receiver", label: "뒤쪽 USB에 꽂힌 작은 장치", x: 57, y: 58.5, w: 9.5, h: 14 },
-      { id: "receiver", label: "본체 옆면의 테이프 자국", x: 79.7, y: 16.2, w: 14.3, h: 16.2 },
-      { id: "cables", label: "전원선과 모니터 선", x: 0, y: 10, w: 45, h: 80 },
-    ],
-    links: [{ label: "앞쪽 보기", closeup: "tower-front" }],
-  },
+  "teacher-pc": { id: "teacher-pc", title: "강사님의 컴퓨터 화면", kind: "screen" },
 };
 
 export const RULES = [
@@ -126,21 +110,21 @@ export const RULES = [
   "범인과 동기를 모두 맞히면 해결. 시간 제한은 없다.",
 ];
 
-export const SUGGESTIONS = ["쉬는 시간에 어디 있었어요?", "{victim} 자리 근처에 간 사람을 봤어요?", "오늘 오전에 {victim} 씨랑 무슨 일이 있었어요?"];
+export const SUGGESTIONS = ["점심시간에 어디 있었어요?", "강사님 자리 근처에 간 사람을 봤어요?", "요즘 강사님이랑 무슨 일 있었어요?"];
 
 /**
- * 막혔을 때의 혼잣말 힌트 (화면 담당). 아직 못 찾은 단서 카드마다 "어디를 볼지"만 알려 준다. 내용은 말하지 않는다.
- * [흐릿한 힌트, 구체적인 힌트]. HINT_ORDER 순서로 아직 못 찾은 첫 단서를 고른다.
+ * 막혔을 때의 혼잣말 힌트 (화면 담당). 아직 못 얻은 단서 카드마다 "어디를 볼지"만 알려 준다. 내용은 말하지 않는다.
+ * [흐릿한 힌트, 구체적인 힌트]. HINT_ORDER 순서로 아직 못 얻은 첫 단서를 고른다.
  */
 export const HINTS: Record<string, [string, string]> = {
-  trash: ["사라진 프로그램이 어디로 갔는지부터 확인해야겠다.", "{victim}의 모니터를 눌러 바탕화면을 살펴보자. 휴지통이 수상하다."],
-  receiver: ["{victim}의 본체 주변이 마음에 걸린다.", "{victim}의 본체를 누르고 '뒤쪽 보기'로 넘겨 보자. 게시판의 장비표도 같이 보면 좋다."],
-  source: ["누가 {victim}의 컴퓨터를 만졌는지, 컴퓨터가 기억하고 있을지도 몰라.", "{victim}의 바탕화면에서 '최근 파일'을 열어 보자."],
-  chat: ["오늘 오전에 무슨 일이 있었는지 남은 기록이 있을까?", "{victim}의 바탕화면에서 메신저를 열어 보자."],
-  build: ["다른 사람들 자리에도 뭔가 남아 있을지 몰라.", "용의자들 자리의 모니터를 하나씩 눌러 보자."],
+  shortcut: ["강사님이 마지막으로 누른 건 크롬이었다. 그것부터 봐야겠다.", "강사님의 모니터를 눌러 바탕화면의 크롬 아이콘을 살펴보자."],
+  usblog: ["이 컴퓨터에 무엇이 꽂혔었는지, 컴퓨터가 기억하고 있을지도 몰라.", "강사님의 모니터를 눌러 바탕화면에서 '장치 기록'을 열어 보자."],
+  usb: ["강사님 책상 위에 강사님 것이 아닌 물건이 있는 것 같다.", "강사님 키보드 옆을 눌러 보자."],
+  mentoring: ["강사님과 수강생들 사이에 무슨 일이 있었는지, 벽에 붙은 것부터 볼까.", "벽에 붙은 종이를 눌러 보자."],
+  message: ["현장에서 볼 건 다 봤다. 나머지는 사람들 입에서 나온다.", "찾은 단서를 사람들에게 하나씩 내밀어 보자. 숨기던 걸 보여 줄지도 모른다."],
 };
-export const HINT_ORDER = ["trash", "receiver", "source", "chat", "build"];
-export const ALL_FOUND_HINT = "현장 단서는 다 모았다. 이제 사람들에게 단서를 내밀어 숨긴 이야기를 끌어내자.";
+export const HINT_ORDER = ["shortcut", "usblog", "usb", "mentoring", "message"];
+export const ALL_FOUND_HINT = "단서는 다 모았다. 이제 단서와 증언을 서로 맞대어 누구 말이 어긋나는지 따져 보자.";
 
 /** "{victim}" 자리표시자를 채운다. */
 export const fillVictim = (s: string, victim: string) => s.replaceAll("{victim}", victim);

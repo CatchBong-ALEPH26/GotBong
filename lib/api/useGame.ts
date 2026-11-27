@@ -1,27 +1,54 @@
 "use client";
 
 // 게임 API(app/api/*)에 붙는 게임 상태. 명세: docs/game/HANDOFF.md §3, 연결 안내: docs/game/INTEGRATION.md
-// 서버가 아는 것: 사건 소개, 단서 카드 5장, 용의자, 대화 기록, 남은 질문, 결과.
-// 화면만 아는 것(이 브라우저의 localStorage): 수사 시작 여부, 장면에서 찾은 단서, 밑줄 메모, 연필 선, 내가 낸 답.
+// 서버가 아는 것: 사건 소개, 단서 카드 5장, 용의자, 대화 기록, 남은 질문, 결과, 현장에서 찾은 단서(found).
+// 화면만 아는 것(이 브라우저의 localStorage): 수사 시작 여부, 단서를 찾은 시각·자리, 밑줄 메모, 연필 선, 내가 낸 답.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Accusation, Contradiction, Emotion, Evidence, GameView, Message, Note, PublicScenario } from "@/lib/view/types";
-import { CLUE_META, RULES, SPOT_TEXT, SPOT_TO_CLUE, SUGGESTIONS, TESTIMONY_ICON, art, classroom, closeups, fillVictim } from "@/lib/scene/classroom";
+import type { Accusation, Contradiction, Emotion, Evidence, GameView, Material, Message, Note, PublicScenario } from "@/lib/view/types";
+import { CLUE_META, RULES, SPOT_TEXT, SUGGESTIONS, TESTIMONY_ICON, art, classroom, closeups, fillVictim } from "@/lib/scene/classroom";
+import { isNewCase, previewApi, startPreview } from "@/lib/preview/ransomware";
 
 // ---------- 서버 응답 형태 (HANDOFF.md §3) ----------
 type ServerAttach = { type: "clue"; id: string; title: string } | { type: "turn"; id: string; npc: string; reply: string } | null;
-type ServerTurn = { id: string; npc: string; question: string; reply: string; emotion: string; attach: ServerAttach };
-type ServerResult = { score: 0 | 1; grader?: "fixture" | "gemini" | "openai" | null; truth: string; cast: { npc: string; name: string; role: string; title: string }[] };
+type ServerClue = { id: string; title: string; detail?: string };
+export type ServerTurn = {
+  id: string;
+  npc: string;
+  question: string;
+  reply: string;
+  emotion: string;
+  attach: ServerAttach;
+  /** 이 대화에서 상대가 보여 준 자료 (영수증, 이용 기록 등. 선택 필드) */
+  material?: Material;
+  /** 이 대화에서 새로 얻은 단서 카드 (선택 필드) */
+  gained?: ServerClue;
+};
+export type ServerResult = {
+  score: 0 | 1;
+  grader?: "fixture" | "gemini" | "openai" | null;
+  truth: string;
+  cast: { npc: string; name: string; role: string; title: string; culprit?: boolean }[];
+  /** 등급 S/A/B/C (선택 필드) */
+  grade?: string | null;
+  /** 밝혀낸 모순 (제출 뒤에만 옴, 화면 표시는 아직 없음) */
+  progress?: { solved: { id: string; title: string }[]; total: number };
+};
 export type Session = {
   intro: string;
   victim: string;
-  clues: { id: string; title: string; detail: string }[];
+  /** 단서 카드. detail 은 찾은 단서에만 온다 (이름이 든 단서가 찾기 전에 새지 않게) */
+  clues: ServerClue[];
   npcs: { id: string; name: string; summary: string }[];
   mode: GameView["mode"];
+  /** 화면 미리보기(가짜 서버)가 만든 응답 */
+  preview?: boolean;
   /** 이 게임의 메모 저장 칸 이름 (서버가 게임 ID로 만든 되돌릴 수 없는 값) */
   gameKey?: string;
   remaining: number;
   maxQuestions: number;
   turns: ServerTurn[];
+  /** 서버에 기록된, 현장에서 찾은 단서 카드 id. 질문에는 이 단서만 내밀 수 있다 (예전 서버면 없음) */
+  found?: string[];
   result: ServerResult | null;
   /** 차단된 방이면 { reason, message } (선택 필드) */
   closed?: { reason: "expired" | "admin"; message: string };
@@ -66,7 +93,11 @@ export class ApiError extends Error {
 /** 응답을 이만큼 기다려도 안 오면 끊는다. 서버의 질문 마감(25초)보다 넉넉하게. */
 const TIMEOUT_MS = 40_000;
 
+/** 실제 서버가 아직 예전 사건을 주면 켠다. 켜지면 모든 요청이 화면 미리보기(lib/preview)로 간다. */
+let usePreview = false;
+
 async function api<T>(path: string, body?: unknown): Promise<T> {
+  if (usePreview) return (await previewApi(path, body)) as T;
   let res: Response;
   try {
     const signal = AbortSignal.timeout(TIMEOUT_MS);
@@ -117,7 +148,7 @@ function buildScenario(s: Session): PublicScenario {
     Object.entries(closeups).map(([id, c]) => [id, c.kind === "image" ? { ...c, title: v(c.title), hotspots: c.hotspots.map((h) => ({ ...h, label: v(h.label) })) } : { ...c, title: v(c.title) }]),
   );
   return {
-    title: "유령 키보드",
+    title: "랜섬웨어 사건",
     intro: s.intro,
     victim: s.victim,
     rules: RULES,
@@ -129,17 +160,31 @@ function buildScenario(s: Session): PublicScenario {
   };
 }
 
-function clueEvidence(s: Session, id: string, foundAt: number, spotId?: string): Evidence | null {
+function clueEvidence(s: Session, id: string, foundAt: number): Evidence | null {
   const c = s.clues.find((x) => x.id === id);
   if (!c) return null;
-  const meta = CLUE_META[id] ?? { icon: TESTIMONY_ICON, place: "", order: null };
-  // 서버 카드에는 주인 이름이 없다(찾기 전 유출 방지). 찾은 모니터의 주인을 붙여 보여 준다.
-  const owner = spotId?.startsWith("monitor-") ? s.npcs.find((n) => n.id === spotId.slice("monitor-".length))?.name : undefined;
-  if (owner) {
-    return { id, kind: "scene", name: `${owner}의 ${c.title.replace(/^모니터의 /, "")}`, text: c.detail.replace("용의자 자리의 모니터", `${owner}의 모니터`), icon: meta.icon, place: `${owner}의 자리 모니터`, order: meta.order, timeLabel: meta.timeLabel, exact: !!meta.timeLabel, foundAt };
-  }
-  return { id, kind: "scene", name: c.title, text: c.detail, icon: meta.icon, place: fillVictim(meta.place, s.victim), order: meta.order, timeLabel: meta.timeLabel, exact: !!meta.timeLabel, foundAt };
+  const meta = CLUE_META[id];
+  return {
+    id,
+    kind: "scene",
+    name: c.title,
+    text: c.detail ?? "",
+    icon: meta?.icon ?? TESTIMONY_ICON,
+    form: meta?.form ?? "paper",
+    place: fillVictim(meta?.place ?? "", s.victim),
+    order: meta?.order ?? null,
+    timeLabel: meta?.timeLabel,
+    exact: false,
+    foundAt,
+  };
 }
+
+/** 조사나 대화로 받은 단서 카드의 내용을 세션에 채운다. */
+const withClue = (s: Session, clue: ServerClue): Session => ({
+  ...s,
+  clues: s.clues.some((c) => c.id === clue.id) ? s.clues.map((c) => (c.id === clue.id ? { ...c, ...clue } : c)) : [...s.clues, clue],
+  found: s.found && !s.found.includes(clue.id) ? [...s.found, clue.id] : s.found,
+});
 
 function toMessage(t: ServerTurn, i: number): Message {
   return {
@@ -150,6 +195,8 @@ function toMessage(t: ServerTurn, i: number): Message {
     answer: t.reply,
     emotion: EMOTION[t.emotion] ?? "neutral",
     createdAt: i,
+    material: t.material,
+    gainedClueId: t.gained?.id,
   };
 }
 
@@ -165,8 +212,27 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
   const pending = useRef(new Map<string, string>());
 
   const adopt = useCallback((s: Session) => {
-    keyRef.current = storageKey(s);
-    setLocal(loadLocal(keyRef.current));
+    const key = storageKey(s);
+    keyRef.current = key;
+    const saved = loadLocal(key);
+    if (s.found) {
+      // 서버가 기록한 단서는 이 브라우저에 없어도 수첩에 보인다 (다른 기기·지운 저장소)
+      const found = { ...saved.found };
+      for (const id of s.found) if (!(id in found)) found[id] = Date.now();
+      const local = { ...saved, found };
+      setLocal(local);
+      saveLocal(key, local);
+      // 서버 기록 전(예전 버전)에 이 브라우저에서만 찾은 단서는 찾은 자리를 다시 조사해 서버에 등록한다.
+      // 등록하지 못하면(방 차단 등) 수첩에는 남지만 질문에 내밀 수는 없다.
+      if (!s.result && !s.closed) {
+        for (const id of Object.keys(saved.found)) {
+          const spot = saved.spots[id];
+          if (!s.found.includes(id) && spot) api("/api/investigate", { spot }).catch(() => undefined);
+        }
+      }
+    } else {
+      setLocal(saved);
+    }
     setSession(s);
   }, []);
 
@@ -174,7 +240,13 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     let ignore = false;
     setError(null);
     api<Session>("/api/session")
-      .then((s) => {
+      .then(async (s) => {
+        // 서버가 아직 예전 사건이면 화면 미리보기로 바꾼다 (사람 목록만 서버 것을 쓴다).
+        if (!usePreview && !isNewCase(s)) {
+          startPreview(s.npcs);
+          usePreview = true;
+          s = await api<Session>("/api/session");
+        }
         if (!ignore) adopt(s);
       })
       .catch((e: Error) => {
@@ -215,7 +287,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     const scenario = buildScenario(session);
     const nameOf = (id: string) => session.npcs.find((n) => n.id === id)?.name ?? "";
     const messages = session.turns.map(toMessage);
-    const clues = Object.entries(local.found).flatMap(([id, at]) => clueEvidence(session, id, at, local.spots[id]) ?? []);
+    const clues = Object.entries(local.found).flatMap(([id, at]) => clueEvidence(session, id, at) ?? []);
     const said: Evidence[] = session.turns.map((t, i) => ({
       id: `turn:${t.id}`,
       kind: "testimony",
@@ -224,6 +296,7 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
       place: `${nameOf(t.npc)}의 말`,
       text: t.reply,
       icon: TESTIMONY_ICON,
+      material: t.material,
       order: null,
       foundAt: i,
     }));
@@ -232,11 +305,15 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
     return {
       closed: session.result ? null : session.closed?.message ?? null,
       mode: session.mode,
+      preview: !!session.preview,
       config: { generalQuestions: session.maxQuestions, questionMaxLength: 500 },
       scenario,
       me: { questionsUsed: session.maxQuestions - session.remaining, started: local.started || session.turns.length > 0 || !!r, submitted: !!r },
       checked: local.checked,
-      clues: session.clues.map((c) => ({ id: c.id, title: c.title, found: c.id in local.found, icon: CLUE_META[c.id]?.icon ?? TESTIMONY_ICON, timeLabel: CLUE_META[c.id]?.timeLabel })),
+      clues: session.clues.map((c) => {
+        const meta = CLUE_META[c.id];
+        return { id: c.id, title: c.title, found: c.id in local.found, icon: meta?.icon ?? TESTIMONY_ICON, timeLabel: meta?.timeLabel, form: meta?.form, talk: !!meta?.talk };
+      }),
       evidence,
       messages,
       notes: local.notes,
@@ -247,8 +324,10 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
             mine: { culprit: nameOf(local.mine?.suspectId ?? ""), motive: local.mine?.motive ?? "" },
             truth: r.truth,
             grader: r.grader ?? null,
-            // 서버 배정에서 역할 D가 범인이다 (HANDOFF.md §3, title도 "범인").
-            cast: r.cast.map((c) => ({ name: c.name, title: c.title, culprit: c.role === "D" || c.title === "범인" })),
+            // 범인 표시는 서버가 준 culprit 을 쓰고, 없으면 역할 이름으로 가린다 (title 이 "범인").
+            cast: r.cast.map((c) => ({ name: c.name, title: c.title, culprit: c.culprit ?? (c.role === "D" || c.title === "범인") })),
+            grade: r.grade ?? null,
+            progress: r.progress ?? null,
             usage: {
               pinned: local.notes.length,
               questionsUsed: session.maxQuestions - session.remaining,
@@ -263,27 +342,24 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
 
   const investigate = useCallback(
     async (spotId: string): Promise<InvestigateResult> => {
-      const s = sessionRef.current!;
-      let clueId = SPOT_TO_CLUE[spotId];
-      let text = SPOT_TEXT[spotId];
-      if (spotId.startsWith("monitor-")) {
-        // 어느 사람의 모니터에 단서가 있는지는 범인을 알아야 정할 수 있어서 서버가 판정한다.
-        const r = await api<{ clue: { id: string } | null }>("/api/investigate", { spot: spotId });
-        if (r.clue) clueId = r.clue.id;
-        else text = SPOT_TEXT.monitor;
-      }
+      // 어디에 어떤 단서가 있는지는 서버가 판정하고, 찾은 단서를 기록한다 (기록된 단서만 질문에 내밀 수 있다).
+      const r = await api<{ clue: ServerClue | null }>("/api/investigate", { spot: spotId }).catch(markClosed);
+      const clue = r.clue;
+      const clueId = clue?.id ?? "";
       const isNew = !!clueId && !(clueId in local.found);
       const at = local.found[clueId] ?? Date.now();
+      const s = clue ? withClue(sessionRef.current!, clue) : sessionRef.current!;
+      if (clue) setSession((cur) => cur && withClue(cur, clue));
       update((l) => ({
         ...l,
         checked: l.checked.includes(spotId) ? l.checked : [...l.checked, spotId],
         found: clueId && !(clueId in l.found) ? { ...l.found, [clueId]: at } : l.found,
         spots: clueId && !(clueId in l.spots) ? { ...l.spots, [clueId]: spotId } : l.spots,
       }));
-      const evidence = clueId ? clueEvidence(s, clueId, at, local.spots[clueId] ?? spotId) : null;
-      return { evidence, isNew, text: evidence?.text ?? fillVictim(text ?? "특별한 건 없어 보인다.", s.victim) };
+      const evidence = clueId ? clueEvidence(s, clueId, at) : null;
+      return { evidence, isNew, text: evidence?.text ?? fillVictim(SPOT_TEXT[spotId] ?? "특별한 건 없어 보인다.", s.victim) };
     },
-    [local.found, local.spots, update],
+    [local.found, update, markClosed],
   );
 
   const ask = useCallback<GameActions["ask"]>(async ({ suspectId, question, clueId }) => {
@@ -299,9 +375,16 @@ export function useGame(): { view: GameView | null; error: string | null; retry:
       return { type: "notice", text: r.message ?? "다시 물어보자.", used: r.used };
     }
     const turn = r.turn;
-    setSession((s) => s && { ...s, remaining: r.remaining, turns: s.turns.some((t) => t.id === turn.id) ? s.turns : [...s.turns, turn] });
+    const gained = turn.gained;
+    setSession((s) => {
+      if (!s) return s;
+      const next = { ...s, remaining: r.remaining, turns: s.turns.some((t) => t.id === turn.id) ? s.turns : [...s.turns, turn] };
+      return gained ? withClue(next, gained) : next;
+    });
+    // 대화로 얻은 단서 카드도 수첩에 들어간다.
+    if (gained) update((l) => (gained.id in l.found ? l : { ...l, found: { ...l.found, [gained.id]: Date.now() } }));
     return { type: "answer", message: toMessage(turn, sessionRef.current?.turns.length ?? 0), used: r.used, thought: r.thought };
-  }, [markClosed]);
+  }, [markClosed, update]);
 
   const accuse = useCallback(
     async (a: Accusation) => {

@@ -9,7 +9,7 @@ const VERDICT = {
   lose: { label: "미해결", sub: "범인이나 동기가 틀렸다" },
 } as const;
 
-/** 해결했을 때 쓴 질문 수로 매기는 칭호 (화면 연출, 서버 판정과 무관). */
+/** 서버가 등급을 주지 않을 때만 쓰는 칭호: 해결했을 때 쓴 질문 수로 매긴다 (화면 연출, 서버 판정과 무관). */
 function rank(used: number, max: number) {
   if (used <= Math.round(max * 0.4)) return "명탐정";
   if (used <= Math.round(max * 0.7)) return "탐정";
@@ -35,7 +35,7 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
   // 동기: 해결이면 맞음. 미해결인데 범인을 맞혔다면 동기가 틀린 것. 범인이 틀리면 동기는 따로 알 수 없다.
   const motiveMark = r.verdict === "win" ? "ok" : culpritOk ? "no" : null;
   const found = view.clues.filter((c) => c.found).length;
-  const timed = view.clues.filter((c) => c.timeLabel).sort((a, b) => a.timeLabel!.localeCompare(b.timeLabel!));
+  const timed = view.clues.filter((c) => c.timeLabel).sort((a, b) => a.timeLabel!.localeCompare(b.timeLabel!, "ko", { numeric: true }));
 
   return (
     <main className="screen report-screen">
@@ -47,7 +47,11 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
             <span className="verdict-stamp">{v.label}</span>
           </p>
           <p className="pencil">{v.sub}</p>
-          {r.verdict === "win" && (
+          {r.grade ? (
+            <p className="rank">
+              등급 · <b className="grade">{r.grade}</b> <span className="pencil small">(질문 {r.usage.questionsUsed}번 사용)</span>
+            </p>
+          ) : r.verdict === "win" && (
             <p className="rank">
               칭호 · <b>{rank(r.usage.questionsUsed, view.config.generalQuestions)}</b> <span className="pencil small">(질문 {r.usage.questionsUsed}번 만에 해결)</span>
             </p>
@@ -81,7 +85,7 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
 
         <section className="report-cols">
           <div>
-            <h2 className="hand-title small">현장 단서 {found}/{view.clues.length}</h2>
+            <h2 className="hand-title small">모은 단서 {found}/{view.clues.length}</h2>
             <ul className="clue-check">
               {view.clues.map((c) => (
                 <li key={c.id} className={c.found ? "got" : "missed"}>
@@ -93,15 +97,29 @@ export function Report({ view, onNewGame }: { view: GameView; onNewGame: () => P
             </ul>
           </div>
           <div>
-            <h2 className="hand-title small">컴퓨터 기록 시간표</h2>
+            <h2 className="hand-title small">기록에 남은 시각</h2>
             <ol className="truth-timeline">
               {timed.map((c) => (
                 <li key={c.id}>
                   <span>{c.timeLabel}</span>
-                  {c.title.replace(` (${c.timeLabel})`, "")}
+                  {c.title}
                 </li>
               ))}
             </ol>
+            {r.progress && (
+              <>
+                <h2 className="hand-title small">밝혀낸 모순 {r.progress.solved.length}/{r.progress.total}</h2>
+                {r.progress.solved.length > 0 ? (
+                  <ul className="key-list">
+                    {r.progress.solved.map((m) => (
+                      <li key={m.id} className="got">{m.title}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="pencil">이번에는 밝혀낸 모순이 없다.</p>
+                )}
+              </>
+            )}
           </div>
         </section>
 

@@ -45,6 +45,12 @@ async function resolveAttach(db, game, npc, attach) {
       throw new GameHttpError(400, "없는 단서입니다.");
     }
 
+    // 현장에서 찾은(조사 API가 기록한) 단서만 내밀 수 있다.
+    // 기록 열이 없는 D1(0006 적용 전)이면 cluesFound 가 null 이라 예전처럼 확인하지 않는다
+    if (game.cluesFound && !game.cluesFound.includes(attach.id)) {
+      throw new GameHttpError(400, say("clueNotFound"));
+    }
+
     const clue = clues.find((c) => c.id === attach.id);
 
     const vars = templateVars(game);

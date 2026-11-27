@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 픽셀 배경은 원본 그대로 계단을 유지해 확대한다 */
 import type { GameView, Hotspot, Scene } from "@/lib/view/types";
+import { TEACHER } from "@/lib/scene/classroom";
 
-export type Hit = { type: "suspect"; id: string } | { type: "spot"; spot: Hotspot } | { type: "empty" };
+export type Hit = { type: "suspect"; id: string } | { type: "teacher" } | { type: "spot"; spot: Hotspot } | { type: "empty" };
 
 const area = (h: { w: number; h: number }) => h.w * h.h;
 
@@ -28,8 +29,17 @@ export function Stage(props: { view: GameView; scene: Scene; target: string | nu
       <img className="stage-img" src={scene.background} alt={`학원 ${scene.name}`} draggable={false} />
       {big.map(spot)}
       {scene.people.map((p) => (
-        <button key={p.suspectId} className="hit suspect" style={box(p.hit)} aria-label={nameOf(p.suspectId)} aria-pressed={target === p.suspectId} onClick={fire({ type: "suspect", id: p.suspectId })} />
+        <button key={p.suspectId} className="hit suspect" style={box(p.hit)} aria-label={nameOf(p.suspectId)} aria-pressed={target === p.suspectId} onClick={fire({ type: "suspect", id: p.suspectId })}>
+          {/* 마우스를 올리면 머리 위에 뜨는 이름표 (누가 누구인지 알 수 있게) */}
+          <span className="name-tag" aria-hidden="true">{nameOf(p.suspectId)}</span>
+        </button>
       ))}
+      {scene.id === "classroom" && (
+        <button className="hit npc" style={box(TEACHER.hit)} aria-label={view.scenario.victim} onClick={fire({ type: "teacher" })}>
+          <img className="npc-sprite" src={TEACHER.sprite} alt="" draggable={false} />
+          <span className="name-tag" aria-hidden="true">{view.scenario.victim}</span>
+        </button>
+      )}
       {small.map(spot)}
     </div>
   );

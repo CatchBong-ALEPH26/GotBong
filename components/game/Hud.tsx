@@ -19,9 +19,10 @@ export function Hud(props: { view: GameView; sceneId: string; onMove: (id: strin
   const soundOn = useSoundOn();
   return (
     <div className="hud">
-      <button className="px-btn hud-note" onClick={onNotebook} aria-label={`수첩 열기, 단서 ${view.evidence.length}개`}>
-        <PixelIcon name="note" />
-        <span>수첩</span>
+      <button className="hud-note" onClick={onNotebook} aria-label={`수첩 열기, 단서 ${view.evidence.length}개`} title="수첩 열기 (N)">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 그림 원본 그대로 */}
+        <img src="/game/ui/notebook.png" alt="" draggable={false} />
+        <span className="hud-note-label">수첩</span>
         {view.evidence.length > 0 && <span className="hud-badge">{view.evidence.length}</span>}
       </button>
       <div className="hud-place" role="group" aria-label="장소">
@@ -33,14 +34,17 @@ export function Hud(props: { view: GameView; sceneId: string; onMove: (id: strin
         ))}
       </div>
       <div className="hud-right">
-        {view.mode === "fixture" && (
+        {view.preview && (
+          <span className="px-chip chip-warn" title="서버가 아직 예전 사건이라, 화면 확인용 임시 내용으로 돌아가는 중">화면 미리보기</span>
+        )}
+        {!view.preview && view.mode === "fixture" && (
           <span className="px-chip chip-warn" title="AI 키가 없어 고정 응답으로 동작 중">테스트 모드</span>
         )}
         <button
           className={`px-chip hud-clues ${found === total ? "chip-done" : ""} ${hintReady ? "chip-glow" : ""}`}
           onClick={onHint}
           title="막히면 눌러서 생각해 보기"
-          aria-label={`현장 단서 ${total}개 중 ${found}개 찾음. 눌러서 힌트 보기`}
+          aria-label={`단서 ${total}개 중 ${found}개 찾음. 눌러서 힌트 보기`}
         >
           <PixelIcon name="bulb" size={14} /> 단서 {found}/{total}
         </button>

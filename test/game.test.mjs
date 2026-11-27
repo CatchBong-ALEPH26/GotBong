@@ -9,7 +9,7 @@ globalThis.fetch = async (url, ...rest) => {
 };
 import { josa, fill, givenName } from '../lib/game/josa.mjs';
 import {
-  newCasting, initialState, applyJudgement, factView, publicCase, templateVars, roleOf, shuffle
+  newCasting, initialState, applyJudgement, factView, publicCase, templateVars, roleOf, shuffle, lowFlags
 } from '../lib/game/game.mjs';
 import { runQuestion } from '../lib/ai/pipeline.mjs';
 import { fixture } from '../lib/ai/llm.mjs';
@@ -61,11 +61,11 @@ test('정답 유출 방지: 공개 정보에 역할 ID·순서가 드러나지 �
   }
 });
 
-test('호칭: 황윤찬은 씨, 나머지는 님', () => {
+test('호칭: 윤찬은 씨, 나머지는 님', () => {
   const game = { cast: { A: 'hwangyc', B: 'kim', C: 'won', D: 'hwanggh' }, victim: '곽도현' };
   assert.match(addressTable(game, 'hwangyc'), /곽도현 → "도현씨"/);
-  assert.match(addressTable(game, 'kim'), /황건희 → "건희님"/);
-  assert.match(addressTable(game, 'won'), /김봉경 → "봉경님"/);
+  assert.match(addressTable(game, 'kim'), /건희 → "건희님"/);
+  assert.match(addressTable(game, 'won'), /봉경 → "봉경님"/);
 });
 
 // 모델 판정 한 질문 (기본: 해당 사실을 만점으로 겨눔)
@@ -259,13 +259,41 @@ test('해금 판정: 절대 기준(G1 앞 단계, G2 첨부 연결, G3 구체성
   assert.equal(unrelated.outcome, 'none');
 });
 
+test('G4 필수 근거: 필요 근거를 이 NPC에게 내밀지 않았으면 점수와 관계없이 해금 불가, 필요 근거 없는 사실은 해당 없음', () => {
+  const B = initialState().B;
+  // 만점 질문이라도 소스 열람 기록(필요 근거)을 보여 준 적 없으면 G4 실패 → 해금도 근접도 아님
+  const guess = applyJudgement('B', B, [Q('b_source', { s3: 1 }), Q('b_typing', { s3: 1 })]);
+  assert.deepEqual(guess.scored.map(x => x.g4), [false, false]);
+  assert.deepEqual(guess.newly, []);
+  assert.deepEqual(guess.scored.map(x => x.outcome), ['none', 'none']);
+  assert.equal(guess.near, false, '증거 없이 찍은 질문에는 당황 표정도 주지 않는다');
+  // 힌트: G4 실패는 G1(순서)이 아니라 G4(증거)로 센다
+  const flags = lowFlags(guess.scored);
+  assert.equal(flags.G4, true);
+  assert.equal(flags.G1, false);
+  // 이번 첨부로 보여 주면 통과
+  const shown = applyJudgement('B', B, [Q('b_source', { g2: 'yes' })], { evidence: ['clue:source'], attached: true });
+  assert.equal(shown.scored[0].g4, true);
+  assert.deepEqual(shown.newly, ['b_source']);
+  // 지난번에 이 NPC에게 보여 준 첨부도 인정 (이번엔 말로만 물어도 됨)
+  assert.deepEqual(applyJudgement('B', { ...B, evidence: ['clue:source'] }, [Q('b_source')]).newly, ['b_source']);
+  // 다른 NPC에게 보여 준 것은 인정하지 않는다 (증거는 NPC별 기록)
+  const D = { unlocked: initialState().D.unlocked, evidence: [] };
+  assert.equal(applyJudgement('D', D, [Q('d_cable_excuse', { s3: 1 })]).scored[0].g4, false);
+  // any 조합: d_delete 는 B의 타이핑 증언 또는 빌드 기록 + 휴지통
+  const deleteReady = { unlocked: [...D.unlocked, 'd_cable_excuse', 'd_receiver'], evidence: ['clue:build', 'clue:trash'] };
+  assert.equal(applyJudgement('D', deleteReady, [Q('d_delete')]).scored[0].g4, true);
+  // 필요 근거가 없는 사실은 G4 해당 없음
+  assert.equal(applyJudgement('B', B, [Q('b_record')]).scored[0].g4, null);
+  assert.deepEqual(applyJudgement('B', B, [Q('b_record')]).newly, ['b_record']);
+});
+
 test('근거성 형식 확인: 필요 근거가 없으면 S2 최대 1, 첨부·기록이 없거나 인용이 "없음"이면 0', () => {
   const B = initialState().B;
-  // 필요 근거(소스 열람 기록)를 보여 준 적 없음 → S2 2 → 1: 일반 사실 (2,1)=3 해금, 중요 b_typing (2,1)=3 근접
+  // 필요 근거(소스 열람 기록)를 보여 준 적 없음 → S2 2 → 1 (해금은 G4가 막는다)
   const noEvidence = applyJudgement('B', B, [Q('b_source'), Q('b_typing')]);
   assert.deepEqual(noEvidence.scored.map(x => x.s2), [1, 1]);
-  assert.deepEqual(noEvidence.newly, ['b_source']);
-  assert.equal(noEvidence.scored[1].outcome, 'near');
+  assert.deepEqual(noEvidence.newly, []);
   // 핵심 사실은 필요 근거 없이는 만점이 될 수 없다
   const D = { unlocked: [...initialState().D.unlocked, 'd_cable_excuse', 'd_receiver', 'd_delete'], evidence: [] };
   assert.deepEqual(applyJudgement('D', D, [Q('d_motive', { s3: 1 })]).newly, []);
@@ -345,13 +373,36 @@ test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 
 test('질문 처리: 근접(해금선 미만, S1≥1)은 해금 없이 표정만 바뀐다', async () => {
   const game = { cast: allCasts[0], victim: '곽도현', state: initialState() };
   const model = async task => ({
-    value: task === 'judge' ? JUDGED('case', { target: 'a_testimony', g3: true, s1: 1, s2: 1 })
-      : task === 'draft' ? { reply: '복도에 있었어요.', emotion: '기본' } : { pass: true, reason: '', disclosed: [] },
+    value: task === 'judge' ? JUDGED('case', { target: 'b_record', g3: true, s1: 1, s2: 1 })
+      : task === 'draft' ? { reply: '선생님께 질문하러 갔어요.', emotion: '기본' } : { pass: true, reason: '', disclosed: [] },
     metric: {}
   });
-  const r = await runQuestion({ model, game, roleId: 'A', question: '교실에 왔었죠', attach: null, history: [] });
+  // 필요 근거가 없는 일반 사실에 1+1=2 (해금선 3 미만)
+  const r = await runQuestion({ model, game, roleId: 'B', question: '쉬는 시간에 기록 남긴 거 있어요?', attach: null, history: [] });
   assert.equal(r.emotion, '당황');
-  assert.ok(!r.state.unlocked.includes('a_testimony'));
+  assert.ok(!r.state.unlocked.includes('b_record'));
+});
+
+test('프롬프트 누설: 범인이 숨긴 행동·동기는 다른 NPC 답변 프롬프트에 없고, 공통 규칙에는 사건 고유 내용이 없다', async () => {
+  const { draftSystem, draftUser, DRAFT_RULES, JUDGE_RULES, VERIFY_RULES } = await import('../lib/ai/prompts.mjs');
+  const { motive } = await import('../lib/game/data/case.mjs');
+  // 공통 규칙은 네 NPC 모두에게 간다. 사건 고유 낱말(단서·범행 수단)을 쓰지 않고 목록 이름만 가리킨다
+  for (const word of ['수신기', '휴지통', '대화방', '빌드', '룰렛', '키보드', '보복', '앙갚']) {
+    assert.ok(!(DRAFT_RULES + JUDGE_RULES + VERIFY_RULES).includes(word), '공통 규칙에 사건 고유 낱말: ' + word);
+  }
+  for (const cast of allCasts.slice(0, 4)) {
+    const game = { cast, victim: '곽도현', state: initialState() };
+    const vars = templateVars(game);
+    // 범인이 숨긴 것: D의 잠긴 사실 내용·숨김 설명, 범행 동기 (공개 단서 카드는 누구나 볼 수 있어 제외)
+    const secrets = [
+      ...roles.D.facts.filter(f => !f.start).flatMap(f => [f.say, f.hint].filter(Boolean)),
+      motive
+    ].map(s => fill(s, vars).replace(/\s*\([^()]*\)/g, '').slice(0, 20));
+    for (const r of ['A', 'B', 'C']) {
+      const text = draftSystem(game, r) + draftUser({ game, view: factView(r, game.state[r]), history: [], attachment: null, kind: 'case', question: 'q' });
+      for (const s of secrets) assert.ok(!text.includes(s), `${r} 답변 프롬프트에 범인 비밀: ${s}`);
+    }
+  }
 });
 
 test('구조화 출력: NPC 단위로 고정된 공통 스키마, 목록 밖 ID·범위 밖 점수·근거 인용 누락은 거부', async () => {
