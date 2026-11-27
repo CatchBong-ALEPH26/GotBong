@@ -57,7 +57,7 @@ npm run dev:ai                                 # GOTBONG_LOCAL_AI=1 로 비밀 �
 
 ## 그림 바꾸기
 지금 그림은 Codex로 만든 **임시 그림**입니다. 같은 이름의 파일로 바꾸면 그대로 적용됩니다.
-- 배경: `public/game/scenes/classroom.png` (1536×864). 바꾸면 `lib/scene/classroom.ts`의 `hotspots`, `people` 좌표(% 단위)도 맞춘다.
+- 배경: `public/game/scenes/classroom.png` (1536×864, 긴 책상 2줄·왼쪽 4자리 오른쪽 3자리, 창문·게시판 없음. 그림 지시문 `docs/design/drafts/briefs/ransomware-classroom.md`). 바꾸면 `lib/scene/classroom.ts`의 `hotspots`, `people` 좌표(% 단위)도 맞춘다.
 - 지금 그림엔 빈 피해자 자리가 없어 오른쪽 뒤 책상(원래 강사님 책상)을 피해자 자리로 쓴다. 다시 그릴 때 빈 자리를 넣는 것을 권장.
 - 초상·상반신: `public/game/{portraits,sprites}/{kim,hwangyc,won,hwanggh}-{neutral,flustered,angry,smile}.png` (서버의 사람 ID 기준)
 - 단서 아이콘: `public/game/items/gk-*.png`

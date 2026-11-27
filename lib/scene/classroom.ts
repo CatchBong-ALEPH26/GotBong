@@ -2,8 +2,9 @@
 // 역할(범인 포함)은 게임마다 바뀌므로 여기에는 역할 기준 정보를 두지 않는다. 사람은 서버의 사람 ID로 가리킨다.
 // 좌표는 public/game/scenes/classroom.png(1536×864) 기준 %.
 //
-// 임시 배치: 배경을 새로 그리기 전이라, 지금 그림의 오른쪽 뒤 책상을 강사님 자리로, 벽 게시판을 멘토링 신청표 자리로 쓴다.
-// 그림을 다시 그리면 hotspots·people 좌표만 고치면 된다. (강사실을 따로 그리면 scenes 에 장소를 하나 더한다.)
+// 배경 구조(2026-11-27): 왼쪽 벽에 창문 없음, 게시판 없음. 긴 책상 2줄(왼쪽 4자리, 오른쪽 3자리). 실제 강의실은 4줄이지만 화면에는 2줄만 그렸다.
+// 강사님 자리는 오른쪽 뒤, 책상 위에 모니터·본체·키보드·USB가 보인다. 멘토링 신청표는 스크린 오른쪽 벽에 붙은 종이.
+// 그림을 다시 그리면 hotspots·people 좌표만 고치면 된다. 그림 지시문: docs/design/drafts/briefs/ransomware-classroom.md
 import type { Closeup, ClueForm, Emotion, Scene } from "@/lib/view/types";
 
 /** 서버 사람 ID → 그림 파일 이름. public/game/{portraits,sprites}/<id>-<표정>.png */
@@ -42,14 +43,11 @@ export const FORM_ICON: Record<ClueForm, string> = { window: icon(9), paper: ico
 /** 단서가 없는 곳의 관찰문. {victim}은 피해자 이름으로 바뀐다. */
 export const SPOT_TEXT: Record<string, string> = {
   monitor: "실습 화면이 떠 있다. 눈에 띄는 기록은 없다.",
-  keyboard: "수강생 자리의 키보드다. 이상한 점은 없다.",
   "teacher-kb": "강사님의 키보드. 자판에는 이상한 점이 없다.",
   "teacher-tower": "강사님 컴퓨터의 본체. USB 포트는 지금 모두 비어 있다.",
   screen: "스크린이 내려와 있다. 오후 강의 자료가 띄워질 자리였다.",
-  window: "앙상한 가로수 위로 첫눈이 살짝 앉았다.",
-  usb: "수강생 자리의 USB 메모리. 실습 과제 폴더뿐이다.",
-  phone: "휴대폰이다. 잠겨 있다.",
-  note: "실습 노트. 오늘 수업 필기뿐이다.",
+  door: "유리문 너머로 복도가 보인다. 계단은 복도 끝에 있다.",
+  trash: "쓰레기통. 구겨진 종이뿐이다.",
   "pc-file": "열리지 않는다. 파일 이름 뒤에 낯선 글자가 붙어 있다.",
   "pc-note": "누군가 장난처럼 남긴 안내문이다. 이것만으로는 누가 했는지 알 수 없다.",
 };
@@ -61,32 +59,26 @@ export const classroom: Scene = {
   width: 1536,
   height: 864,
   hotspots: [
-    { id: "window", label: "창문", x: 0, y: 3.5, w: 30.6, h: 49.7 },
-    { id: "screen", label: "스크린", x: 41.5, y: 13.7, w: 31.1, h: 28.5 },
-    { id: "mentoring-sheet", label: "벽에 붙은 종이", x: 78.8, y: 19.9, w: 8.3, h: 13.3 },
+    { id: "screen", label: "스크린", x: 37.4, y: 16.2, w: 29.3, h: 25.5 },
+    { id: "mentoring-sheet", label: "벽에 붙은 종이", x: 77.4, y: 20, w: 4.6, h: 9.4 },
+    { id: "door", label: "유리문", x: 92.8, y: 11, w: 7.2, h: 54 },
+    { id: "trash", label: "쓰레기통", x: 88.8, y: 46.6, w: 3.8, h: 11.4 },
     // 강사님 자리
-    { id: "teacher-monitor", label: "강사님의 모니터", x: 75.4, y: 35.2, w: 5.8, h: 9.4, closeup: "teacher-pc" },
-    { id: "desk-usb", label: "강사님 키보드 옆", x: 84.5, y: 42.2, w: 3.6, h: 3.6 },
-    { id: "teacher-kb", label: "강사님의 키보드", x: 80.1, y: 43.4, w: 4.4, h: 1.8 },
-    { id: "teacher-tower", label: "강사님 컴퓨터 본체", x: 72.6, y: 45.6, w: 15.6, h: 12.3 },
-    // 수강생 자리의 모니터와 소품 (단서 없음)
-    { id: "monitor", label: "모니터", x: 26.4, y: 41.9, w: 6.8, h: 10.2 },
-    { id: "monitor", label: "모니터", x: 57.6, y: 41.9, w: 6.5, h: 9.6 },
-    { id: "monitor", label: "모니터", x: 35.5, y: 57.9, w: 8, h: 12.5 },
-    { id: "monitor", label: "모니터", x: 65.6, y: 57.9, w: 8.3, h: 9.8 },
-    { id: "keyboard", label: "키보드", x: 27.3, y: 51.8, w: 4.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 59.4, y: 51.8, w: 4.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 36.1, y: 70.6, w: 6.3, h: 3 },
-    { id: "keyboard", label: "키보드", x: 72.9, y: 71.2, w: 5.6, h: 4.6 },
-    { id: "usb", label: "USB 메모리", x: 31.8, y: 51.8, w: 2.6, h: 3 },
-    { id: "phone", label: "휴대폰", x: 43.6, y: 70.8, w: 2.6, h: 3.4 },
-    { id: "note", label: "실습 노트", x: 67.4, y: 51.3, w: 3.9, h: 3.2 },
+    { id: "teacher-monitor", label: "강사님의 모니터", x: 70.6, y: 31.9, w: 6.4, h: 9.6, closeup: "teacher-pc" },
+    { id: "teacher-tower", label: "강사님 컴퓨터 본체", x: 77.6, y: 33, w: 3.3, h: 8.6 },
+    { id: "teacher-kb", label: "강사님의 키보드", x: 72.9, y: 41.3, w: 5.6, h: 2 },
+    { id: "desk-usb", label: "강사님 키보드 옆", x: 79.9, y: 40.3, w: 3, h: 3.2 },
+    // 수강생 자리 (단서 없음)
+    { id: "monitor", label: "수강생 자리의 모니터", x: 12.8, y: 46.2, w: 36, h: 8.6 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 60.6, y: 46.2, w: 23.8, h: 8.6 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 8.2, y: 67.8, w: 40.4, h: 9.4 },
+    { id: "monitor", label: "수강생 자리의 모니터", x: 56.4, y: 67.8, w: 32.4, h: 9.4 },
   ],
   people: [
-    { suspectId: "kim", hit: { x: 19.5, y: 39, w: 7.5, h: 30 } },
-    { suspectId: "hwangyc", hit: { x: 52, y: 40, w: 5.5, h: 30 } },
-    { suspectId: "won", hit: { x: 28.6, y: 56, w: 7.5, h: 37 } },
-    { suspectId: "hwanggh", hit: { x: 76, y: 54, w: 9, h: 37 } },
+    { suspectId: "kim", hit: { x: 21.2, y: 42.4, w: 7.6, h: 24.6 } },
+    { suspectId: "hwangyc", hit: { x: 55.2, y: 42.6, w: 8.6, h: 24.8 } },
+    { suspectId: "won", hit: { x: 27.4, y: 62.2, w: 8.8, h: 28 } },
+    { suspectId: "hwanggh", hit: { x: 76.2, y: 62.2, w: 11.2, h: 28 } },
   ],
 };
 
