@@ -35,10 +35,12 @@ export function Stage(props: { view: GameView; scene: Scene; target: string | nu
         </button>
       ))}
       {scene.id === "classroom" && (
-        <button className="hit npc" style={box(TEACHER.hit)} aria-label={view.scenario.victim} onClick={fire({ type: "teacher" })}>
-          <img className="npc-sprite" src={TEACHER.sprite} alt="" draggable={false} />
-          <span className="name-tag" aria-hidden="true">{view.scenario.victim}</span>
-        </button>
+        <>
+          <img className="npc-art" style={box(TEACHER.art)} src={TEACHER.crouch} alt="" draggable={false} />
+          <button className="hit npc" style={box(TEACHER.hit)} aria-label={view.scenario.victim} onClick={fire({ type: "teacher" })}>
+            <span className="name-tag" aria-hidden="true">{view.scenario.victim}</span>
+          </button>
+        </>
       )}
       {small.map(spot)}
     </div>

@@ -63,6 +63,8 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   // 사람과 대화하는 동안(질문 입력·생각 중·답변) 그 사람을 화면 가운데 크게 보여 준다.
   const talking = !done && !closeup && !card && !!target && (dialog.kind === "edit" || dialog.kind === "thinking" || dialog.kind === "answer");
   const talker = target ? suspectOf(target) : null;
+  // 강사님처럼 말만 하는 인물: 관찰문 대사창에 큰 그림을 함께 띄운다 (용의자 대화와 같은 모양).
+  const npcFigure = !done && !closeup && !card && dialog.kind === "narrate" ? dialog.figure : undefined;
   const lastMsg = target ? [...view.messages].reverse().find((m) => m.suspectId === target) : undefined;
   const answerMsg = dialog.kind === "answer" ? view.messages.find((m) => m.id === dialog.messageId) : undefined;
   // 방금 받은 답변에 자료나 새 단서 카드가 딸려 왔으면 대사창 위에 물건 모양으로 띄운다.
@@ -140,7 +142,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       play("tick");
       setCardId(null);
       setTeacherTalks((n) => n + 1);
-      return setDialog({ kind: "narrate", key: `teacher-${Date.now()}`, title: view.scenario.victim, text: TEACHER.lines[teacherTalks % TEACHER.lines.length], image: { src: TEACHER.portrait, alt: view.scenario.victim } });
+      return setDialog({ kind: "narrate", key: `teacher-${Date.now()}`, title: view.scenario.victim, text: TEACHER.lines[teacherTalks % TEACHER.lines.length], figure: { src: TEACHER.figure, alt: `${view.scenario.victim}의 표정` } });
     }
     play("tick");
     setEmptyClicks((n) => n + 1);
@@ -291,7 +293,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   }
 
   return (
-    <div className={`game ${done ? "is-done" : ""} ${talking ? "is-talking" : ""}`}>
+    <div className={`game ${done ? "is-done" : ""} ${talking || npcFigure ? "is-talking" : ""}`}>
       <div className="desktop-only px" role="alert">
         <p>방과후 탐정단은 데스크톱 화면에서 플레이한다.</p>
         <p className="dim">창을 넓히거나 컴퓨터로 접속해 줘.</p>
@@ -328,6 +330,12 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
           <figure key={talker.id} className={`talk-figure ${dialog.kind === "thinking" ? "is-thinking" : ""}`} aria-label={`${talker.name} · 대화 중`}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 스프라이트 원본 그대로 */}
             <img key={talkEmotion} src={talker.sprites[talkEmotion]} alt={`${talker.name}의 표정`} draggable={false} className={talkEmotion === "flustered" && dialog.kind === "answer" ? "shake" : ""} />
+          </figure>
+        )}
+        {npcFigure && (
+          <figure key={npcFigure.src} className="talk-figure" aria-label={npcFigure.alt}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 스프라이트 원본 그대로 */}
+            <img src={npcFigure.src} alt={npcFigure.alt} draggable={false} className="shake" />
           </figure>
         )}
         {toast && <div className="toast px" role="status">{toast}</div>}
