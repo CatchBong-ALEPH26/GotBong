@@ -77,8 +77,8 @@ export const classroom: Scene = {
   people: [
     { suspectId: "kim", hit: { x: 21.2, y: 42.4, w: 7.6, h: 24.6 } },
     { suspectId: "hwangyc", hit: { x: 55.2, y: 42.6, w: 8.6, h: 24.8 } },
-    { suspectId: "won", hit: { x: 27.4, y: 62.2, w: 8.8, h: 28 } },
-    { suspectId: "hwanggh", hit: { x: 76.2, y: 62.2, w: 11.2, h: 28 } },
+    { suspectId: "won", hit: { x: 27.4, y: 61.6, w: 8.8, h: 13 } },
+    { suspectId: "hwanggh", hit: { x: 76.2, y: 61.6, w: 11.2, h: 13 } },
   ],
 };
 
