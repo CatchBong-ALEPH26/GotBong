@@ -28,7 +28,10 @@ export function Stage(props: { view: GameView; scene: Scene; target: string | nu
       <img className="stage-img" src={scene.background} alt={`학원 ${scene.name}`} draggable={false} />
       {big.map(spot)}
       {scene.people.map((p) => (
-        <button key={p.suspectId} className="hit suspect" style={box(p.hit)} aria-label={nameOf(p.suspectId)} aria-pressed={target === p.suspectId} onClick={fire({ type: "suspect", id: p.suspectId })} />
+        <button key={p.suspectId} className="hit suspect" style={box(p.hit)} aria-label={nameOf(p.suspectId)} aria-pressed={target === p.suspectId} onClick={fire({ type: "suspect", id: p.suspectId })}>
+          {/* 마우스를 올리면 머리 위에 뜨는 이름표 (누가 누구인지 알 수 있게) */}
+          <span className="name-tag" aria-hidden="true">{nameOf(p.suspectId)}</span>
+        </button>
       ))}
       {small.map(spot)}
     </div>

@@ -19,9 +19,10 @@ export function Hud(props: { view: GameView; sceneId: string; onMove: (id: strin
   const soundOn = useSoundOn();
   return (
     <div className="hud">
-      <button className="px-btn hud-note" onClick={onNotebook} aria-label={`수첩 열기, 단서 ${view.evidence.length}개`}>
-        <PixelIcon name="note" />
-        <span>수첩</span>
+      <button className="hud-note" onClick={onNotebook} aria-label={`수첩 열기, 단서 ${view.evidence.length}개`} title="수첩 열기 (N)">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 그림 원본 그대로 */}
+        <img src="/game/ui/notebook.png" alt="" draggable={false} />
+        <span className="hud-note-label">수첩</span>
         {view.evidence.length > 0 && <span className="hud-badge">{view.evidence.length}</span>}
       </button>
       <div className="hud-place" role="group" aria-label="장소">
