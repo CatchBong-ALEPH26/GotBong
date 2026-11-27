@@ -10,7 +10,7 @@ import { Notebook, PAGE_LOG, emptyAccuseDraft, type AccuseDraft } from "./Notebo
 import { Closeup, ClueView } from "./Closeup";
 import { ClueCard } from "./ClueCard";
 import { IntroScreen } from "./IntroScreen";
-import { ALL_FOUND_HINT, HINTS, HINT_ORDER, fillVictim } from "@/lib/scene/classroom";
+import { ALL_FOUND_HINT, HINTS, HINT_ORDER, fillVictim, TEACHER } from "@/lib/scene/classroom";
 import { play, setBgm } from "@/lib/audio/sound";
 
 /** 새 단서 없이 이만큼 지나면 단서 표시가 반짝이고(살짝 권함), 더 지나면 혼잣말 힌트가 저절로 나온다. */
@@ -49,6 +49,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   // 막힘 감지: 마지막으로 새 단서를 찾은 시각, 연달아 헛짚은 횟수, 단서별로 보여 준 힌트 단계
   const [lastProgress, setLastProgress] = useState(() => Date.now());
   const [emptyClicks, setEmptyClicks] = useState(0);
+  const [teacherTalks, setTeacherTalks] = useState(0);
   const [hintsShown, setHintsShown] = useState<Record<string, number>>({});
   const [autoHinted, setAutoHinted] = useState<string | null>(null);
   const [tick, setTick] = useState(() => Date.now());
@@ -134,6 +135,13 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       return setDialog({ kind: "edit" });
     }
     if (h.type === "spot") return onSpot(h.spot);
+    if (h.type === "teacher") {
+      // 강사님은 대화만: 당황한 한두 문장을 번갈아 말한다. 질문 입력·차감·기록 없음.
+      play("tick");
+      setCardId(null);
+      setTeacherTalks((n) => n + 1);
+      return setDialog({ kind: "narrate", key: `teacher-${Date.now()}`, title: view.scenario.victim, text: TEACHER.lines[teacherTalks % TEACHER.lines.length], image: { src: TEACHER.portrait, alt: view.scenario.victim } });
+    }
     play("tick");
     setEmptyClicks((n) => n + 1);
     setDialog({ kind: "narrate", key: `empty-${Date.now()}`, title: "살펴보기", text: view.scenario.emptyText });

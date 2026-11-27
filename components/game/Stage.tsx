@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 픽셀 배경은 원본 그대로 계단을 유지해 확대한다 */
 import type { GameView, Hotspot, Scene } from "@/lib/view/types";
+import { TEACHER } from "@/lib/scene/classroom";
 
-export type Hit = { type: "suspect"; id: string } | { type: "spot"; spot: Hotspot } | { type: "empty" };
+export type Hit = { type: "suspect"; id: string } | { type: "teacher" } | { type: "spot"; spot: Hotspot } | { type: "empty" };
 
 const area = (h: { w: number; h: number }) => h.w * h.h;
 
@@ -33,6 +34,12 @@ export function Stage(props: { view: GameView; scene: Scene; target: string | nu
           <span className="name-tag" aria-hidden="true">{nameOf(p.suspectId)}</span>
         </button>
       ))}
+      {scene.id === "classroom" && (
+        <button className="hit npc" style={box(TEACHER.hit)} aria-label={view.scenario.victim} onClick={fire({ type: "teacher" })}>
+          <img className="npc-sprite" src={TEACHER.sprite} alt="" draggable={false} />
+          <span className="name-tag" aria-hidden="true">{view.scenario.victim}</span>
+        </button>
+      )}
       {small.map(spot)}
     </div>
   );

@@ -82,6 +82,21 @@ export const classroom: Scene = {
   ],
 };
 
+/**
+ * 강사님 = 피해자(이름은 서버의 victim). 심문 대상이 아니라 질문·증거·수첩 기록이 없다. 누르면 당황한 말 한두 문장만 한다.
+ * 그림이 아직 없어 여성 실루엣 임시 그림이다. 대사도 시나리오 담당 확인 전 임시 문장이고, 사건 내용은 넣지 않는다.
+ * 자리: 오른쪽 유리문 앞에 쭈그려 앉아 있다.
+ */
+export const TEACHER = {
+  hit: { x: 92.9, y: 46.5, w: 7, h: 19.5 },
+  sprite: "/game/sprites/teacher-crouch.png",
+  portrait: "/game/portraits/teacher-flustered.png",
+  lines: [
+    "어, 어머… 이게 무슨 일이야. 머릿속이 하얘서 아무 생각이 안 나요…",
+    "미, 미안해요! 저도 지금 정신이 하나도 없어서… 조금만 있다가요.",
+  ],
+};
+
 export const closeups: Record<string, Closeup> = {
   "teacher-pc": { id: "teacher-pc", title: "강사님의 컴퓨터 화면", kind: "screen" },
 };

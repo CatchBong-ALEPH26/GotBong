@@ -125,6 +125,14 @@ img { image-rendering: pixelated; }
 /* 사람 위에 마우스를 올리면 머리 위에 뜨는 이름표 */
 .name-tag { position: absolute; left: 50%; bottom: 100%; translate: -50% -0.3cqi; padding: 0.1cqi 0.8cqi; background: var(--plum-dark); color: var(--yellow); box-shadow: 0 0 0 2px var(--line); font-family: var(--font-title); font-size: clamp(13px, 1.1cqi, 19px); line-height: 1.5; white-space: nowrap; pointer-events: none; opacity: 0; }
 .hit.suspect:hover .name-tag, .hit.suspect:focus-visible .name-tag { opacity: 1; }
+/* 강사님(배경 인물): 배경 그림에 없어 스프라이트를 얹는다. 말만 거는 대상이라 질문 커서를 쓴다. */
+.cursor-look .hit.npc { cursor: url("/game/cursor-ask.svg") 6 6, pointer; }
+/* 바닥 접지 그림자: 방의 푸른 조명에 맞춘 보랏빛 그림자 (합성 느낌 줄이기) */
+.hit.npc::before { content: ""; position: absolute; left: 4%; right: 4%; bottom: -3%; height: 12%; border-radius: 50%; background: radial-gradient(closest-side, rgb(46 44 92 / 0.55), rgb(46 44 92 / 0.28) 55%, transparent); pointer-events: none; }
+.hit.npc::after { content: ""; position: absolute; left: 18%; right: 14%; bottom: -1%; height: 5%; border-radius: 50%; background: radial-gradient(closest-side, rgb(30 28 66 / 0.55), transparent); pointer-events: none; }
+.npc-sprite { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: bottom; pointer-events: none; user-select: none; }
+.hit.npc:hover .name-tag, .hit.npc:focus-visible .name-tag { opacity: 1; }
+.hit.npc .name-tag { left: auto; right: 0; translate: 0 -0.3cqi; } /* 화면 오른쪽 끝이라 이름표를 오른쪽에 맞춘다 */
 .hud .px-chip { font-size: clamp(14px, 1.1cqi, 19px); min-height: clamp(32px, 2.6cqi, 44px); padding: 2px clamp(10px, 0.8cqi, 14px); }
 .hud .px-btn { font-size: clamp(15px, 1.15cqi, 20px); min-height: clamp(40px, 3cqi, 52px); }
 .dialog .px-btn.small { font-size: clamp(14px, 1.05cqi, 18px); min-height: clamp(34px, 2.6cqi, 44px); }
