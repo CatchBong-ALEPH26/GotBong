@@ -741,7 +741,8 @@ button.px-chip:focus-visible { outline: 2px solid var(--yellow); outline-offset:
 .mv-desk.is-locking { animation: mv-flash 0.45s steps(2) 0.3s 2; }
 @keyframes mv-flash { 50% { filter: brightness(2.2) saturate(0); } }
 .is-locking .mv-icon i { animation: show 0.2s steps(2) forwards; animation-delay: calc(1.3s + var(--i) * 0.45s); }
-.is-locking .mv-doc { animation: mv-blank 0.3s steps(2) forwards; animation-delay: calc(3.7s + var(--i) * 0.35s); }
+/* steps(3, jump-none): 0 → 반 → 흰색. steps(2)는 크롬에서 끝난 뒤에도 반쯤 섞인 색에 멈췄다 */
+.is-locking .mv-doc { animation: mv-blank 0.3s steps(3, jump-none) forwards; animation-delay: calc(3.7s + var(--i) * 0.35s); }
 @keyframes mv-blank { to { background: #fff; box-shadow: inset 0 0 0 2px #9aa0b4; } }
 .mv-ransom { position: absolute; left: 0; top: 0; width: 100%; height: calc(100% - 3cqi); object-fit: cover; image-rendering: auto; animation: show 0.4s steps(4) 5.9s forwards; }
 .shot-room .shot-people { inset: auto 0 0 0; padding-bottom: 13cqi; background: linear-gradient(transparent, rgb(8 6 12 / 0.9) 45%); }
@@ -750,3 +751,35 @@ button.px-chip:focus-visible { outline: 2px solid var(--yellow); outline-offset:
 @media (prefers-reduced-motion: reduce) {
   .mv-icon i, .mv-ransom { opacity: 1; }
 }
+
+/* 수첩 사건 개요: 시작 영상 장면 액자. 장면은 영상 크기(1280px)로 그린 뒤 줄인다(StoryFrames.tsx). */
+.story-card { width: 100%; grid-template-columns: auto 1fr; justify-items: start; align-items: center; gap: 14px; padding: 10px 14px; text-align: left; }
+.story-card b { display: block; font-size: 15px; font-weight: 400; font-family: var(--font-title); }
+.story-card-icon { width: 56px; margin: 5px; background: #08060c; box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 5px #8a5a3c, 0 0 0 6px #4a2f2a; }
+.story-frames { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; column-gap: 40px; row-gap: 34px; padding: 14px 14px 4px; list-style: none; }
+.story-frames li { min-width: 0; }
+.story-frame { display: grid; justify-items: center; gap: 14px; width: 100%; padding: 0; border: 0; cursor: pointer; background: none; color: var(--paper-ink); }
+.story-frame .story-still { width: 100%; background: #08060c; box-shadow: 0 0 0 3px var(--paper-light), 0 0 0 9px #8a5a3c, 0 0 0 11px #4a2f2a, 5px 7px 0 11px rgb(74 47 42 / 0.3); transition: transform 120ms steps(2); }
+.story-frame:hover .story-still, .story-frame:focus-visible .story-still { transform: translateY(-3px); }
+.story-frame:focus-visible { outline: 3px solid var(--red-pencil); outline-offset: 16px; }
+.story-still { position: relative; aspect-ratio: 16 / 9; overflow: hidden; }
+.story-stage { position: absolute; left: 0; top: 0; width: 1280px; aspect-ratio: 16 / 9; container-type: inline-size; transform-origin: 0 0; overflow: hidden; background: #08060c; pointer-events: none; }
+.story-no { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-family: var(--font-title); font-size: 15px; color: var(--paper-ink); background: var(--paper-light); box-shadow: 0 0 0 2px rgb(107 74 58 / 0.35); }
+.story-no svg { color: var(--red-pencil); }
+.story-frame:hover .story-no, .story-frame:focus-visible .story-no { box-shadow: 0 0 0 2px var(--red-pencil); }
+/* 작은 액자에서 알아보게 장면별로 확대: 컴퓨터 장면은 모니터를, 마지막 장면은 제목을 키운다 */
+.story-stage[data-shot="click"] > .shot-pc, .story-stage[data-shot="encrypt"] > .shot-pc { transform: translateY(69px) scale(1.45); }
+.story-stage[data-shot="ask"] > .shot-title { transform: scale(1.45); }
+/* 액자 속 장면은 움직임이 끝난 모습으로 멈춰 둔다 */
+.is-still *, .is-still *::before, .is-still *::after { animation: none !important; }
+.is-still .is-locking .mv-icon i, .is-still .mv-ransom { opacity: 1; }
+.is-still .is-locking .mv-doc { background: #fff; box-shadow: inset 0 0 0 2px #9aa0b4; }
+.is-still .is-clicking .mv-cursor { left: 8.5%; top: 11%; }
+/* 다시 보기 창: 수첩 위에 뜨는 상영창 */
+.story-viewer { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgb(8 6 12 / 0.9); }
+.story-viewer-box { position: relative; display: grid; justify-items: center; gap: 16px; outline: none; }
+.story-viewer .movie-frame { width: min(92vw, calc((100vh - 130px) * 16 / 9), 1180px); cursor: pointer; box-shadow: 0 0 0 4px var(--line-dim); }
+.story-controls { display: flex; align-items: center; gap: 12px; }
+.story-count { min-width: 64px; text-align: center; color: var(--cream); font-family: var(--font-title); font-size: 16px; }
+.story-again { margin-left: 24px; }
+.story-close { position: absolute; top: 12px; right: 12px; z-index: 1; }

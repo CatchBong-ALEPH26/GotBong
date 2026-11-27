@@ -1,40 +1,27 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- 픽셀 그림 */
 import { useEffect, useRef, useState } from "react";
 import type { GameView } from "@/lib/view/types";
 import { play } from "@/lib/audio/sound";
-import { CHROME_ICON, RANSOM_NOTE } from "@/lib/scene/classroom";
-import { LOCKED_EXT, LOCKED_FILES } from "./Closeup";
+import { CHARS_PER_SEC, ShotArt, storyScenes, type Shot } from "./StoryShots";
 
 /**
  * 시작 영상: 사건 안내 설명(시나리오 1절)을 장면 그림과 함께 한 문단씩 보여 준다. 건너뛸 수 없다.
- * 용의자가 게임마다 바뀌므로 동영상 파일 대신 화면 요소로 그린다.
+ * 장면 그림은 StoryShots에 있고, 수첩의 사건 개요 액자도 같은 그림을 쓴다.
  * 문장은 서버의 사건 소개(intro)를 문단(줄) 단위로 그대로 쓰고, 문단 순서에 맞는 장면을 붙인다.
  * 시간은 화면이 보일 때만 흐른다 (다른 탭에 가 있으면 멈춤). 끝나면 규칙 카드와 "수사 시작" 버튼이 나온다.
  */
 
-/** 줄 순서별 장면. 사건 소개 줄이 더 많으면 나머지는 교실 장면으로 보여 준다. */
-const SHOTS = ["click", "encrypt", "lunch", "ask"] as const;
-type Shot = (typeof SHOTS)[number] | "title" | "room";
-
 const OPENING_MS = 2600;
-const CHARS_PER_SEC = 22.5; // 자막이 찍히는 속도 (처음 15에서 1.5배로 올림)
 const HOLD_MS = 1800; // 자막이 다 찍힌 뒤 읽을 시간
 /** 장면 속 움직임(커서 클릭, 파일이 잠기는 순서, 사람 등장)이 끝까지 보이는 데 필요한 최소 시간. */
 const MIN_MS: Partial<Record<Shot, number>> = { click: 5200, encrypt: 8200, lunch: 6800 };
 const sceneMs = (text: string, shot: Shot) => Math.max(MIN_MS[shot] ?? 3400, (text.length / CHARS_PER_SEC) * 1000 + HOLD_MS);
 
 export function IntroScreen({ view, onStart }: { view: GameView; onStart: () => void }) {
-  const sc = view.scenario;
-  const lines = sc.intro.split("\n").map((l) => l.trim()).filter(Boolean);
-  const notice = lines.filter((l) => l.startsWith("※"));
-  const story = lines.filter((l) => !l.startsWith("※"));
+  const { scenes: story, notice } = storyScenes(view);
   const scenes: { shot: Shot; text: string; ms: number }[] = [
     { shot: "title", text: "", ms: OPENING_MS },
-    ...story.map((text, i) => {
-      const shot: Shot = SHOTS[i] ?? "room";
-      return { shot, text, ms: sceneMs(text, shot) };
-    }),
+    ...story.map((s) => ({ ...s, ms: sceneMs(s.text, s.shot) })),
   ];
   const total = scenes.reduce((n, s) => n + s.ms, 0);
 
@@ -97,80 +84,6 @@ export function IntroScreen({ view, onStart }: { view: GameView; onStart: () => 
       </div>
     </div>
   );
-}
-
-/** 영상 속 강사님 바탕화면. locked 면 파일이 차례로 잠기고 안내문이 뜬다. */
-function MovieDesktop({ locked, clock }: { locked: boolean; clock: string }) {
-  return (
-    <div className="shot-pc">
-      <div className={`pc-screen mv-desk ${locked ? "is-locking" : "is-clicking"}`}>
-        {locked && <img className="mv-ransom" src={RANSOM_NOTE} alt="" />}
-        <div className="mv-icons" aria-hidden="true">
-          <div className="mv-icon mv-chrome">
-            <img src={CHROME_ICON} alt="" />
-            <span>Chrome</span>
-          </div>
-          {LOCKED_FILES.map((f, i) => (
-            <div key={f} className="mv-icon" style={{ "--i": i } as React.CSSProperties}>
-              <span className={`mv-doc mv-doc-${i % 4}`} />
-              <span>{f}<i>{LOCKED_EXT}</i></span>
-            </div>
-          ))}
-        </div>
-        <span className="ghost-cursor mv-cursor" aria-hidden="true" />
-        <div className="taskbar"><span className="start">■</span><span className="clock">{clock}</span></div>
-      </div>
-    </div>
-  );
-}
-
-function ShotArt({ shot, view }: { shot: Shot; view: GameView }) {
-  const sc = view.scenario;
-  switch (shot) {
-    case "title":
-      return (
-        <div className="shot-title">
-          <span className="px-tag">사건 파일</span>
-          <h1>{sc.title}</h1>
-          <p>피해자 · {sc.victim}</p>
-        </div>
-      );
-    case "click":
-      // 오후 2시, 강사님이 늘 하던 대로 크롬 아이콘을 누른다.
-      return <MovieDesktop locked={false} clock="14:00" />;
-    case "encrypt":
-      // 화면이 깜빡이고 파일 이름 뒤에 낯선 글자가 붙는다. 아이콘이 흰 문서로 바뀌고, 배경 화면이 안내문 그림으로 바뀐다.
-      return <MovieDesktop locked clock="14:05" />;
-    case "lunch":
-      // 점심시간 내내 빈 자리, 그리고 그날 학원에 있던 네 사람.
-      return (
-        <div className="shot-room is-dim">
-          <img src={sc.scenes[0].background} alt="" />
-          <span className="shot-stamp">점심시간 1시 ~ 2시</span>
-          <div className="shot-people">
-            {sc.suspects.map((s, i) => (
-              <figure key={s.id} style={{ animationDelay: `${3600 + i * 500}ms` }}>
-                <img src={s.sprites.neutral} alt="" />
-                <figcaption>{s.name}</figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      );
-    case "ask":
-      return (
-        <div className="shot-title">
-          <h1>누가, 왜?</h1>
-          <p>질문 {view.config.generalQuestions}번 · 현장 조사는 횟수에 들지 않는다</p>
-        </div>
-      );
-    default:
-      return (
-        <div className="shot-room">
-          <img src={sc.scenes[0].background} alt="" />
-        </div>
-      );
-  }
 }
 
 /** 영상이 끝난 뒤의 규칙 카드. 사건 개요는 수첩에서 다시 볼 수 있다. */
