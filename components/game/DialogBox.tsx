@@ -10,7 +10,7 @@ export type Draft = { question: string; clueId: string | null };
 export const emptyDraft: Draft = { question: "", clueId: null };
 
 export type Dialog =
-  | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; found?: "new" | "again"; hint?: boolean }
+  | { kind: "narrate"; key: string; title: string; text: string; image?: { src: string; alt: string; item?: boolean }; figure?: { src: string; alt: string }; found?: "new" | "again"; hint?: boolean }
   | { kind: "prompt"; key: string; text: string }
   | { kind: "notice"; key: string; text: string; used?: number } // 탐정 속마음 안내 (되묻기·반려·오류). 써 둔 질문은 남아 있다. used: 이번에 쓴 질문 수(연속 무차감 뒤 1회)
   | { kind: "edit" }

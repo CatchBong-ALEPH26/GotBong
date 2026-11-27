@@ -88,9 +88,12 @@ export const classroom: Scene = {
  * 자리: 오른쪽 유리문 앞에 쭈그려 앉아 있다.
  */
 export const TEACHER = {
-  hit: { x: 92.9, y: 46.5, w: 7, h: 19.5 },
-  sprite: "/game/sprites/teacher-crouch.png",
-  portrait: "/game/portraits/teacher-flustered.png",
+  hit: { x: 92, y: 49.5, w: 7, h: 19.8 },
+  /** 장면에 얹는 그림의 자리. 배경 그림(1536×864)의 x 1250~1536, y 250~679를 그대로 덮는 투명 PNG라 배경과 픽셀이 맞는다. */
+  art: { x: 81.38, y: 28.94, w: 18.62, h: 49.65 },
+  crouch: "/game/sprites/teacher-crouch.png",
+  /** 말을 걸면 용의자처럼 화면 가운데 크게 뜨는 그림. */
+  figure: "/game/sprites/teacher-flustered.png",
   lines: [
     "어, 어머… 이게 무슨 일이야. 머릿속이 하얘서 아무 생각이 안 나요…",
     "미, 미안해요! 저도 지금 정신이 하나도 없어서… 조금만 있다가요.",
