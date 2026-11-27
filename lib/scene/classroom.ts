@@ -49,7 +49,7 @@ export const SPOT_TEXT: Record<string, string> = {
   door: "유리문 너머로 복도가 보인다. 계단은 복도 끝에 있다.",
   trash: "쓰레기통. 구겨진 종이뿐이다.",
   "pc-file": "열리지 않는다. 파일 이름 뒤에 낯선 글자가 붙어 있다.",
-  "pc-note": "누군가 장난처럼 남긴 안내문이다. 이것만으로는 누가 했는지 알 수 없다.",
+  "pc-note": "배경 화면이 누군가 장난처럼 남긴 안내문으로 바뀌어 있다. 이것만으로는 누가 했는지 알 수 없다.",
 };
 
 export const classroom: Scene = {

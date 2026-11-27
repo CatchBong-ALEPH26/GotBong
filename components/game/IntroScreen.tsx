@@ -99,6 +99,7 @@ function MovieDesktop({ locked, clock }: { locked: boolean; clock: string }) {
   return (
     <div className="shot-pc">
       <div className={`pc-screen mv-desk ${locked ? "is-locking" : "is-clicking"}`}>
+        {locked && <img className="mv-ransom" src={RANSOM_NOTE} alt="" />}
         <div className="mv-icons" aria-hidden="true">
           <div className="mv-icon mv-chrome">
             <img src={CHROME_ICON} alt="" />
@@ -110,13 +111,8 @@ function MovieDesktop({ locked, clock }: { locked: boolean; clock: string }) {
               <span>{f}<i>{LOCKED_EXT}</i></span>
             </div>
           ))}
-          <div className="mv-icon mv-note">
-            <span className="blank-doc is-note" />
-            <span>읽어보세요.txt</span>
-          </div>
         </div>
         <span className="ghost-cursor mv-cursor" aria-hidden="true" />
-        {locked && <img className="mv-ransom" src={RANSOM_NOTE} alt="" />}
         <div className="taskbar"><span className="start">■</span><span className="clock">{clock}</span></div>
       </div>
     </div>
@@ -138,7 +134,7 @@ function ShotArt({ shot, view }: { shot: Shot; view: GameView }) {
       // 오후 2시, 강사님이 늘 하던 대로 크롬 아이콘을 누른다.
       return <MovieDesktop locked={false} clock="14:00" />;
     case "encrypt":
-      // 화면이 깜빡이고 파일 이름 뒤에 낯선 글자가 붙는다. 아이콘이 흰 문서로 바뀌고 안내문이 뜬다.
+      // 화면이 깜빡이고 파일 이름 뒤에 낯선 글자가 붙는다. 아이콘이 흰 문서로 바뀌고, 배경 화면이 안내문 그림으로 바뀐다.
       return <MovieDesktop locked clock="14:05" />;
     case "lunch":
       // 점심시간 내내 빈 자리, 그리고 그날 학원에 있던 네 사람.
