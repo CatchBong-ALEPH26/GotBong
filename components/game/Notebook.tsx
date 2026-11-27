@@ -8,6 +8,7 @@ import { PixelIcon } from "@/components/pixel/PixelIcon";
 import { PinnableText } from "./PinnableText";
 import { play } from "@/lib/audio/sound";
 import { ClueCard } from "./ClueCard";
+import { Still, StoryFrames } from "./StoryFrames";
 
 export type AccuseDraft = { who: string; motive: string };
 export const emptyAccuseDraft: AccuseDraft = { who: "", motive: "" };
@@ -72,7 +73,7 @@ export function Notebook(props: {
   );
 }
 
-/** 1쪽: 단서 노트. 이름·위치·사실 텍스트만 적는다 (규칙 v2 4장). */
+/** 1쪽: 단서 노트. 이름·위치·사실 텍스트만 적는다 (규칙 v2 4장). 맨 위 "사건 개요"를 고르면 오른쪽에 시작 영상 장면 액자가 걸린다. */
 function CluePages({ view, onPresent }: { view: GameView; onPresent: (id: string) => void }) {
   const [pick, setPick] = useState<string | null>(view.evidence[0]?.id ?? null);
   const cur = view.evidence.find((c) => c.id === pick) ?? null;
@@ -82,6 +83,15 @@ function CluePages({ view, onPresent }: { view: GameView; onPresent: (id: string
     <>
       <section className="page">
         <h2 className="hand-title">단서 노트</h2>
+        <button className={`clue-card story-card ${pick === null ? "on" : ""}`} onClick={() => setPick(null)} aria-pressed={pick === null}>
+          <span className="story-card-icon" aria-hidden="true">
+            <Still shot="click" view={view} />
+          </span>
+          <span>
+            <b>사건 개요</b>
+            <span className="pencil small">시작 영상 장면 다시 보기</span>
+          </span>
+        </button>
         {view.evidence.length === 0 ? (
           <p className="pencil">아직 비어 있다. 장면에서 수상한 곳을 눌러 보고, 사람들에게 물어보자.</p>
         ) : (
@@ -119,7 +129,7 @@ function CluePages({ view, onPresent }: { view: GameView; onPresent: (id: string
             )}
           </div>
         ) : (
-          <p className="ink">{view.scenario.intro}</p>
+          <StoryFrames view={view} />
         )}
       </section>
     </>
