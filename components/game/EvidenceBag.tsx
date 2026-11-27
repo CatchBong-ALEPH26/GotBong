@@ -5,11 +5,11 @@ import type { Evidence, GameView } from "@/lib/view/types";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
 
 const GROUPS: { kind: Evidence["kind"]; label: string }[] = [
-  { kind: "scene", label: "현장 단서" },
+  { kind: "scene", label: "단서" },
   { kind: "testimony", label: "증언" },
 ];
 
-/** 증거 고르기 창. 현장 단서와 다른 사람의 말(증언)을 내밀 수 있다. 지금 묻는 사람 본인의 말은 빠진다. */
+/** 증거 고르기 창. 단서 카드와 다른 사람의 말(증언)을 내밀 수 있다. 지금 묻는 사람 본인의 말은 빠진다. */
 /** 열릴 때 창으로 포커스를 옮긴다. 모듈 함수라 다시 그려도 다시 불리지 않는다. */
 const focusOnOpen = (el: HTMLElement | null) => {
   el?.focus({ preventScroll: true });

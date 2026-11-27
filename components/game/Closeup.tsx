@@ -1,7 +1,10 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 픽셀 클로즈업 그림 */
-import type { Closeup as CloseupData, GameView, Hotspot } from "@/lib/view/types";
+import { useState } from "react";
+import type { Closeup as CloseupData, ClueForm, GameView, Hotspot } from "@/lib/view/types";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
+import { CHROME_ICON, RANSOM_NOTE } from "@/lib/scene/classroom";
+import { ClueCard } from "./ClueCard";
 
 /**
  * 클로즈업 화면 (2단계 조사). 장면 위에 확대 그림이나 컴퓨터 화면을 띄운다.
@@ -44,49 +47,71 @@ export function Closeup(props: { view: GameView; data: CloseupData; onSpot: (h: 
   );
 }
 
-/** 피해자의 바탕화면: 실습 폴더, 휴지통, 최근 파일, 메신저를 눌러 본다. 창 속 글은 서버가 준 단서 카드 문장이다. */
-function Desktop({ found, onSpot }: { found: (id: string) => { text: string } | undefined; onSpot: (h: Hotspot) => void }) {
+/** 피해 입은 파일들 (연출용 이름). 이름 뒤에 낯선 글자가 붙고 아이콘은 흰 빈 문서다. */
+export const LOCKED_FILES = ["3주차_강의자료.pptx", "출석부.xlsx", "실습_예제.zip", "포폴_피드백.docx", "강의계획서.hwp"];
+export const LOCKED_EXT = ".k9x2";
+
+/**
+ * 강사님의 바탕화면 (피해 뒤). 크롬 바로가기와 장치 기록을 누르면 단서 창이 열린다. 창 속 글은 서버가 준 단서 카드 문장이다.
+ * 안내문 파일을 누르면 안내문 그림이 뜬다. 나머지 파일은 열리지 않는다.
+ */
+function Desktop({ found, onSpot }: { found: (id: string) => { name: string; text: string } | undefined; onSpot: (h: Hotspot) => void }) {
+  const [open, setOpen] = useState<"shortcut" | "usblog" | "note" | null>(null);
   const spot = (id: string, label: string): Hotspot => ({ id, label, x: 0, y: 0, w: 0, h: 0 });
-  const trash = found("trash");
-  const recent = found("source");
-  const chat = found("chat");
-  const icons: [string, string, string][] = [
-    ["desk-folder", "실습_데모", "/game/items/gk-1.png"],
-    ["desk-trash", "휴지통", "/game/items/gk-2.png"],
-    ["desk-recent", "최근 파일", "/game/items/gk-7.png"],
-    ["desk-chat", "메신저", "/game/items/gk-8.png"],
-  ];
+  const press = (id: string, label: string, win: typeof open) => {
+    setOpen(win);
+    onSpot(spot(id, label));
+  };
+  const clue = open === "shortcut" || open === "usblog" ? found(open) : undefined;
   return (
-    <div className="pc-screen desktop">
+    <div className="pc-screen desktop is-locked">
       <div className="desk-icons">
-        {icons.map(([id, label, src]) => (
-          <button key={id} className="desk-icon" onClick={() => onSpot(spot(id, label))}>
-            <img src={src} alt="" />
-            <span>{label}</span>
+        <button className="desk-icon" onClick={() => press("pc-chrome", "크롬 바로가기", "shortcut")}>
+          <img src={CHROME_ICON} alt="" />
+          <span>Chrome</span>
+        </button>
+        <button className="desk-icon" onClick={() => press("pc-devices", "장치 기록", "usblog")}>
+          <img src="/game/items/gk-6.png" alt="" />
+          <span>장치 기록</span>
+        </button>
+        <button className="desk-icon" onClick={() => press("pc-note", "안내문 파일", "note")}>
+          <span className="blank-doc is-note" aria-hidden="true" />
+          <span>읽어보세요.txt</span>
+        </button>
+        {LOCKED_FILES.map((f) => (
+          <button key={f} className="desk-icon" onClick={() => press("pc-file", f + LOCKED_EXT, null)}>
+            <span className="blank-doc" aria-hidden="true" />
+            <span>{f}<i>{LOCKED_EXT}</i></span>
           </button>
         ))}
       </div>
       <div className="desk-windows">
-        {trash && (
-          <section className="win">
-            <header>휴지통</header>
-            <p className="win-text">{trash.text}</p>
-          </section>
-        )}
-        {recent && (
-          <section className="win">
-            <header>최근 파일</header>
-            <p className="win-text">{recent.text}</p>
-          </section>
-        )}
-        {chat && (
-          <section className="win chat-win">
-            <header>단체 대화방</header>
-            {chat.text.split("\n").map((t, i) => <p key={i} className="chat-line">{t}</p>)}
+        {clue && <ClueCard form="window" title={clue.name} text={clue.text} size="lg" />}
+        {open === "note" && (
+          <section className="win note-win">
+            <header>읽어보세요.txt</header>
+            <img src={RANSOM_NOTE} alt="누군가 남긴 안내문. 파일을 잠갔다는 내용이 영어로 적혀 있다." />
           </section>
         )}
       </div>
-      <div className="taskbar"><span className="start">■</span><span className="clock">10:15</span></div>
+      <div className="taskbar"><span className="start">■</span><span className="clock">14:05</span></div>
+    </div>
+  );
+}
+
+/** 현장에서 찾은 단서를 실제 물건 모양으로 크게 보여 준다 (종이, 실물 등). */
+export function ClueView({ title, form, text, onClose }: { title: string; form: ClueForm; text: string; onClose: () => void }) {
+  return (
+    <div className="closeup clue-view" role="dialog" aria-label={title}>
+      <div className="closeup-bar">
+        <span className="px-tag">{title}</span>
+        <button className="px-btn small" onClick={onClose} aria-label="돌아가기">
+          <PixelIcon name="close" size={12} /> 돌아가기
+        </button>
+      </div>
+      <div className={`closeup-body clue-stage clue-stage-${form}`}>
+        <ClueCard form={form} title={title} text={text} size="lg" />
+      </div>
     </div>
   );
 }

@@ -31,6 +31,15 @@ export type Closeup =
   | { id: string; title: string; kind: "image"; background: string; hotspots: Hotspot[]; links?: { label: string; closeup: string }[] }
   | { id: string; title: string; kind: "screen" };
 
+/**
+ * 단서·자료가 실제로 어떤 물건인지 (시나리오 5.3절). 이 형태대로 그린다.
+ * window 강사님 모니터 창 / paper 종이 / object 실물 / phone 스마트폰 화면 / files 개인 PC의 파일 목록
+ */
+export type ClueForm = "window" | "paper" | "object" | "phone" | "files";
+
+/** 증언 속 자료: 대화 중에 상대가 보여 준 것(영수증, 이용 기록 등). 단서 카드는 아니고 그 대화에 붙는다. */
+export type Material = { id: string; form: ClueForm; title: string; text: string };
+
 export type PublicSuspect = {
   id: string; // 서버의 사람 ID
   name: string;
@@ -62,6 +71,8 @@ export type Evidence = {
   place: string;
   text: string;
   icon: string;
+  form?: ClueForm; // 현장·대화 단서의 형태
+  material?: Material; // 증언에 붙은 자료
   suspectId?: string; // 증언한 사람
   order: number | null; // 사건 순서 정렬용. null이면 시간과 무관
   timeLabel?: string;
@@ -77,6 +88,8 @@ export type Message = {
   answer: string;
   emotion: Emotion;
   createdAt: number;
+  material?: Material; // 이 대화에서 상대가 보여 준 자료
+  gainedClueId?: string; // 이 대화에서 새로 얻은 단서 카드
 };
 
 /** 플레이어가 답변 문장을 눌러 남긴 개인 메모. 서버 판정에는 쓰지 않는다. */
@@ -105,13 +118,19 @@ export type ReportView = {
   /** 동기를 채점한 방식. fixture = 테스트용 키워드 비교, gemini·openai = 실제 AI, null = 범인이 틀려 채점 안 함 */
   grader: "fixture" | "gemini" | "openai" | null;
   usage: { questionsUsed: number; evidenceShown: string[]; pinned: number };
+  /** 서버가 매긴 등급 (S/A/B/C). 없으면 표시하지 않는다 */
+  grade?: string | null;
+  /** 밝혀낸 모순 현황 (서버가 제출 뒤에만 준다) */
+  progress?: { solved: { id: string; title: string }[]; total: number } | null;
 };
 
 /** 서버 단서 카드의 찾기 현황. 제목은 게임이 끝난 뒤(보고서)에만 화면에 보여 준다. */
-export type ClueStatus = { id: string; title: string; found: boolean; icon: string; timeLabel?: string };
+export type ClueStatus = { id: string; title: string; found: boolean; icon: string; timeLabel?: string; form?: ClueForm; talk?: boolean };
 
 export type GameView = {
   mode: "openai" | "gemini" | "fixture";
+  /** 서버가 아직 예전 사건이라, 화면 확인용 임시 내용으로 돌아가는 중 */
+  preview?: boolean;
   config: GameConfig;
   scenario: PublicScenario;
   me: Me;

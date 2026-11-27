@@ -7,7 +7,8 @@ import { Hud } from "./Hud";
 import { DialogBox, emptyDraft, type Dialog, type Draft } from "./DialogBox";
 import { EvidenceBag } from "./EvidenceBag";
 import { Notebook, PAGE_LOG, emptyAccuseDraft, type AccuseDraft } from "./Notebook";
-import { Closeup } from "./Closeup";
+import { Closeup, ClueView } from "./Closeup";
+import { ClueCard } from "./ClueCard";
 import { IntroScreen } from "./IntroScreen";
 import { ALL_FOUND_HINT, HINTS, HINT_ORDER, fillVictim } from "@/lib/scene/classroom";
 import { play, setBgm } from "@/lib/audio/sound";
@@ -22,18 +23,20 @@ type Overlay = null | { kind: "notebook" } | { kind: "bag" };
 
 /**
  * D 형태 진행 화면: 픽셀 장면 + 레트로 대사창. 대사는 AI 서버가 만든다.
- * 사건 소개 → (유령 연출) → 장면. 물건을 누르면 조사하고, 컴퓨터·본체는 클로즈업이 열린다.
+ * 시작 영상 → 장면. 물건을 누르면 조사하고, 강사님 모니터는 클로즈업이 열린다. 찾은 단서는 실제 물건 모양으로 크게 보여 준다.
  * 사람을 누르면 그 사람이 가운데 서고 질문하거나 증거를 내민다. 최종 추리는 수첩에서 제출한다. 데스크톱 전용.
  */
 export function GameScreen({ view, actions }: { view: GameView; actions: GameActions }) {
   const [sceneId, setSceneId] = useState(view.scenario.scenes[0].id);
   const scene = view.scenario.scenes.find((s) => s.id === sceneId)!;
   const [closeupId, setCloseupId] = useState<string | null>(null);
+  // 장면에서 바로 찾은 단서(종이, 실물)를 크게 보여 주는 중이면 그 단서 id
+  const [cardId, setCardId] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>({
     kind: "narrate",
     key: "intro",
-    title: "교실",
+    title: "강의실",
     text: "수상한 곳을 눌러 조사하고, 사람을 눌러 질문하자. 모은 단서와 증언은 수첩(N)에 정리된다.",
   });
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -54,12 +57,20 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   const busy = dialog.kind === "thinking";
   const suspectOf = (id: string) => view.scenario.suspects.find((s) => s.id === id)!;
   const closeup = closeupId ? view.scenario.closeups[closeupId] : null;
+  const card = cardId ? view.evidence.find((e) => e.id === cardId) ?? null : null;
 
   // 사람과 대화하는 동안(질문 입력·생각 중·답변) 그 사람을 화면 가운데 크게 보여 준다.
-  const talking = !done && !closeup && !!target && (dialog.kind === "edit" || dialog.kind === "thinking" || dialog.kind === "answer");
+  const talking = !done && !closeup && !card && !!target && (dialog.kind === "edit" || dialog.kind === "thinking" || dialog.kind === "answer");
   const talker = target ? suspectOf(target) : null;
   const lastMsg = target ? [...view.messages].reverse().find((m) => m.suspectId === target) : undefined;
   const answerMsg = dialog.kind === "answer" ? view.messages.find((m) => m.id === dialog.messageId) : undefined;
+  // 방금 받은 답변에 자료나 새 단서 카드가 딸려 왔으면 대사창 위에 물건 모양으로 띄운다.
+  const gainedClue = answerMsg?.gainedClueId ? view.evidence.find((e) => e.id === answerMsg.gainedClueId) : undefined;
+  const gain = gainedClue
+    ? { label: "새 단서 · 수첩에 적었다", form: gainedClue.form ?? "paper", title: gainedClue.name, text: gainedClue.text }
+    : answerMsg?.material
+      ? { label: "보여 준 자료 · 대화 기록에 남는다", form: answerMsg.material.form, title: answerMsg.material.title, text: answerMsg.material.text }
+      : null;
   const talkEmotion = dialog.kind === "thinking" ? "neutral" : (answerMsg ?? lastMsg)?.emotion ?? "neutral";
 
   const say = useCallback((t: string) => {
@@ -90,13 +101,19 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       setEmptyClicks((n) => n + 1);
     }
     if (r.evidence) {
-      setDialog({ kind: "narrate", key: `${spot.id}-${Date.now()}`, title: r.evidence.name, text: r.evidence.text, image: { src: r.evidence.icon, alt: r.evidence.name, item: true }, found: r.isNew ? "new" : "again" });
+      // 모니터 속 단서는 그 화면의 창으로 뜬다. 장면에서 바로 찾은 단서는 물건 모양으로 크게 보여 준다.
+      if (!closeupId) {
+        setTarget(null);
+        setCardId(r.evidence.id);
+      }
+      setDialog({ kind: "narrate", key: `${spot.id}-${Date.now()}`, title: r.evidence.name, text: "자세히 들여다본다.", image: { src: r.evidence.icon, alt: r.evidence.name, item: true }, found: r.isNew ? "new" : "again" });
     } else {
       setDialog({ kind: "narrate", key: `${spot.id}-${Date.now()}`, title: spot.label, text: r.text });
     }
   }
 
   function onSpot(spot: Hotspot) {
+    setCardId(null);
     if (spot.closeup) {
       setTarget(null);
       play("open");
@@ -110,6 +127,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
   function onHit(h: Hit) {
     if (done || busy) return;
     if (h.type === "suspect") {
+      setCardId(null);
       setTarget(h.id);
       // 지금 고른 사람의 말은 그 사람에게 내밀 수 없다 (서버 규칙).
       if (draft.clueId && view.evidence.find((e) => e.id === draft.clueId)?.suspectId === h.id) setDraft((d) => ({ ...d, clueId: null }));
@@ -126,6 +144,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     const next = view.scenario.scenes.find((s) => s.id === id)!;
     setSceneId(id);
     setCloseupId(null);
+    setCardId(null);
     if (target && !next.people.some((p) => p.suspectId === target)) setTarget(null);
     setDialog({ kind: "narrate", key: `move-${id}-${Date.now()}`, title: next.name, text: `${next.name}에 왔다.` });
   }
@@ -143,6 +162,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     setDraft((d) => ({ ...d, clueId: id }));
     setOverlay(null);
     setCloseupId(null);
+    setCardId(null);
     if (target && target !== own) setDialog({ kind: "edit" });
     else {
       if (target === own) setTarget(null);
@@ -166,7 +186,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
       // 심문도 진행이다. 열심히 묻는 중에 '막혔나?' 힌트가 끼어들지 않게 한다.
       setLastProgress(Date.now());
       setEmptyClicks(0);
-      play(r.message.emotion === "flustered" ? "fluster" : "reply");
+      play(r.message.gainedClueId ? "found" : r.message.emotion === "flustered" ? "fluster" : "reply");
       setDialog({ kind: "answer", messageId: r.message.id, animate: true, used: r.used, thought: r.thought });
     } catch (e) {
       play("notice");
@@ -187,7 +207,7 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
     setDialog({ kind: "narrate", key: `hint-${Date.now()}`, title: "생각", text: fillVictim(HINTS[missing][level], view.scenario.victim), hint: true });
   }
   // 'prompt'(누구에게 증거를 내밀지 고르는 중)는 쉬는 상태가 아니다. 자동 힌트가 안내를 덮어쓰지 않게 한다.
-  const idle = !done && !overlay && !closeup && dialog.kind === "narrate";
+  const idle = !done && !overlay && !closeup && !card && dialog.kind === "narrate";
   const stuckMs = tick - lastProgress;
   const hintReady = !!missing && (stuckMs > HINT_GLOW_MS || emptyClicks >= EMPTY_CLICKS_GLOW);
 
@@ -240,7 +260,10 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
         play("open");
         setOverlay({ kind: "notebook" });
       }
-      if (e.key === "Escape") setCloseupId(null);
+      if (e.key === "Escape") {
+        setCloseupId(null);
+        setCardId(null);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -278,13 +301,21 @@ export function GameScreen({ view, actions }: { view: GameView; actions: GameAct
           onHint={() => {
             if (busy) return;
             setCloseupId(null);
+            setCardId(null);
             setTarget(null);
             hint();
           }}
           hintReady={hintReady && idle}
         />
         <Stage view={view} scene={scene} target={target} disabled={done || busy} onHit={onHit} />
-        {closeup && <Closeup view={view} data={closeup} onSpot={onSpot} onOpen={setCloseupId} onClose={() => setCloseupId(null)} />}
+        {closeup && <Closeup view={view} data={closeup} onSpot={(h) => void look(h)} onOpen={setCloseupId} onClose={() => setCloseupId(null)} />}
+        {card && !closeup && <ClueView title={card.name} form={card.form ?? "paper"} text={card.text} onClose={() => setCardId(null)} />}
+        {gain && !closeup && !card && (
+          <div className="gain-card" role="status">
+            <span className="px-tag">{gain.label}</span>
+            <ClueCard form={gain.form} title={gain.title} text={gain.text} size="md" />
+          </div>
+        )}
         {talking && talker && (
           <figure key={talker.id} className={`talk-figure ${dialog.kind === "thinking" ? "is-thinking" : ""}`} aria-label={`${talker.name} · 대화 중`}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 픽셀 스프라이트 원본 그대로 */}

@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PixelIcon } from "@/components/pixel/PixelIcon";
 import { PinnableText } from "./PinnableText";
 import { play } from "@/lib/audio/sound";
+import { ClueCard } from "./ClueCard";
 
 export type AccuseDraft = { who: string; motive: string };
 export const emptyAccuseDraft: AccuseDraft = { who: "", motive: "" };
@@ -14,7 +15,7 @@ export const emptyAccuseDraft: AccuseDraft = { who: "", motive: "" };
 export const PAGES = ["단서 노트", "대상별 기록", "사건 순서", "최종 추리"] as const;
 export const PAGE_LOG = 1;
 
-const KIND_LABEL: Record<Evidence["kind"], string> = { scene: "현장 단서", testimony: "증언" };
+const KIND_LABEL: Record<Evidence["kind"], string> = { scene: "단서", testimony: "증언" };
 
 /**
  * 종이 수첩. 위쪽 책갈피나 쪽 넘김으로 이동한다.
@@ -108,7 +109,8 @@ function CluePages({ view, onPresent }: { view: GameView; onPresent: (id: string
         {cur ? (
           <div className="clue-detail">
             <p className="pencil small">{KIND_LABEL[cur.kind]} · {cur.place}{cur.timeLabel ? ` · ${cur.timeLabel}` : ""}</p>
-            <p className="ink">{cur.text}</p>
+            {cur.kind === "scene" && cur.form ? <ClueCard form={cur.form} title={cur.name} text={cur.text} size="sm" /> : <p className="ink">{cur.text}</p>}
+            {cur.material && <ClueCard form={cur.material.form} title={cur.material.title} text={cur.material.text} size="sm" />}
             {shownTo(cur.id).length > 0 && <p className="pencil small">내밀어 본 사람 · {shownTo(cur.id).map(nameOf).join(", ")}</p>}
             {!view.me.submitted && (
               <button className="paper-btn" onClick={() => onPresent(cur.id)}>
@@ -177,6 +179,12 @@ function LogPages({ view, logSuspect, setLogSuspect, onPin }: { view: GameView; 
                     <span>A.</span>
                     <PinnableText text={m.answer} animate={false} isPinned={(t) => view.notes.some((n) => n.messageId === m.id && n.text === t)} onPin={(t) => onPin(m, t)} />
                   </div>
+                  {m.material && (
+                    <div className="log-material">
+                      <span className="pencil small">보여 준 자료</span>
+                      <ClueCard form={m.material.form} title={m.material.title} text={m.material.text} size="sm" />
+                    </div>
+                  )}
                 </li>
               ))}
             </ol>
@@ -354,7 +362,7 @@ function AccusePages({ view, actions, accuse, setAccuse }: { view: GameView; act
               value={accuse.motive}
               disabled={done}
               onChange={(e) => set({ motive: e.target.value })}
-              placeholder="예) 오전에 ○○한 일 때문에, △△하려고"
+              placeholder="예) ○○한 일 때문에, △△하려고"
               aria-label="동기"
               aria-describedby="motive-help"
             />
