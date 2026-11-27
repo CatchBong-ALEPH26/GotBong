@@ -18,9 +18,11 @@ const SHOTS = ["click", "encrypt", "lunch", "ask"] as const;
 type Shot = (typeof SHOTS)[number] | "title" | "room";
 
 const OPENING_MS = 2600;
-const CHARS_PER_SEC = 15; // 자막이 찍히는 속도
+const CHARS_PER_SEC = 22.5; // 자막이 찍히는 속도 (처음 15에서 1.5배로 올림)
 const HOLD_MS = 1800; // 자막이 다 찍힌 뒤 읽을 시간
-const sceneMs = (text: string) => Math.max(3400, (text.length / CHARS_PER_SEC) * 1000 + HOLD_MS);
+/** 장면 속 움직임(커서 클릭, 파일이 잠기는 순서, 사람 등장)이 끝까지 보이는 데 필요한 최소 시간. */
+const MIN_MS: Partial<Record<Shot, number>> = { click: 5200, encrypt: 8200, lunch: 6800 };
+const sceneMs = (text: string, shot: Shot) => Math.max(MIN_MS[shot] ?? 3400, (text.length / CHARS_PER_SEC) * 1000 + HOLD_MS);
 
 export function IntroScreen({ view, onStart }: { view: GameView; onStart: () => void }) {
   const sc = view.scenario;
@@ -29,7 +31,10 @@ export function IntroScreen({ view, onStart }: { view: GameView; onStart: () => 
   const story = lines.filter((l) => !l.startsWith("※"));
   const scenes: { shot: Shot; text: string; ms: number }[] = [
     { shot: "title", text: "", ms: OPENING_MS },
-    ...story.map((text, i) => ({ shot: SHOTS[i] ?? ("room" as const), text, ms: sceneMs(text) })),
+    ...story.map((text, i) => {
+      const shot: Shot = SHOTS[i] ?? "room";
+      return { shot, text, ms: sceneMs(text, shot) };
+    }),
   ];
   const total = scenes.reduce((n, s) => n + s.ms, 0);
 
