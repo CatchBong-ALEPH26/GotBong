@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 
 import { openD1 } from "../../../lib/server/db-d1.mjs";
 import { characters } from "../../../lib/game/data/characters.mjs";
+import { getMaterial, FIXED_VICTIM } from "../../../lib/game/data/ransomware.mjs";
 import { clues, clueIds } from "../../../lib/game/data/case.mjs";
 import { fill } from "../../../lib/game/josa.mjs";
 import { roleOf, templateVars, chargeFor, lowFlags, updateLows } from "../../../lib/game/game.mjs";
@@ -97,6 +98,8 @@ export async function POST(request) {
     if (!game) {
       throw new GameHttpError(409, say("noSession"));
     }
+
+    if (game.victim !== FIXED_VICTIM) throw new GameHttpError(409, say('noSession'));
 
     // 2. 요청 데이터 검증
     const input = await readGameJson(request);
@@ -241,6 +244,13 @@ export async function POST(request) {
       return json(replay ?? response);
     }
 
+    const vars = templateVars(game);
+    const material = answered ? getMaterial(answer.disclosed, game.cast._alibi, vars, fill, history.map((t) => t.material?.id).filter(Boolean)) : null;
+    const gained = answered && roleId === 'A' && answer.disclosed.includes('a_message')
+      && !(game.cluesFound ?? []).includes('message')
+      ? (() => { const card = clues.find(c=>c.id==='message'); return {id:card.id,title:fill(card.title,vars),detail:fill(card.detail,vars)}; })()
+      : null;
+
     // 8. 클라이언트에 공개할 첨부 정보
     const publicAttach =
       attach?.type === "turn"
@@ -262,6 +272,8 @@ export async function POST(request) {
       emotion: answer.emotion,
       attach: publicAttach,
       facts: answer.disclosed,
+      material,
+      gained,
     };
 
     // 센 질문 수만큼 차감한다 (판정 단계에서 남은 횟수 이하인 것을 확인했다)
@@ -283,6 +295,8 @@ export async function POST(request) {
         fingerprint,
         response,
         turn,
+        // 0006 미적용 D1(cluesFound === null)에는 찾은 단서 열이 없다: 카드는 응답으로만 주고 기록은 건너뛴다
+        gainedClue: game.cluesFound ? gained?.id : undefined,
         state: {
           ...game.state,
           [roleId]: answer.state,

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 
 import { openD1 } from "../../../lib/server/db-d1.mjs";
 import { characters } from "../../../lib/game/data/characters.mjs";
+import { scoreGrade, FIXED_VICTIM } from "../../../lib/game/data/ransomware.mjs";
 import { culprit } from "../../../lib/game/data/case.mjs";
 
 import {
@@ -100,6 +101,8 @@ export async function POST(request) {
     // 차단(휴면 만료·관리자)된 방은 제출을 받지 않는다
     await checkRoom(db, game);
 
+    if (game.victim !== FIXED_VICTIM) throw new GameHttpError(409, say('noSession'));
+
     // 4. 범인이 맞을 때만 동기를 채점한다.
     const roleId = roleOf(game.cast, npc);
     let match = false;
@@ -128,6 +131,7 @@ export async function POST(request) {
       cast: revealCast(game),
       // 밝혀낸 모순 (해금 기록에서 계산). 범인 쪽 정보라 제출 뒤에만 보낸다
       progress: progressOf(game.state),
+      grade: scoreGrade(match, progressOf(game.state).solved.map(s=>s.id)),
     };
 
     const response = { result };
