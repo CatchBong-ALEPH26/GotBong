@@ -282,6 +282,27 @@ test('질문 처리: 빈 답이나 너무 긴 답은 서버 오류가 아니라 
   }
 });
 
+test('질문 처리: 말버릇 앙케이트의 설명 글("본론만 이야기함" 등)을 대사로 옮기면 한 번 다시 만들고, 고쳐지면 그 답을 쓴다', async () => {
+  const { runQuestion } = await import('../lib/ai/pipeline.mjs');
+  const { initialState } = await import('../lib/game/game.mjs');
+  const game = { cast: { A: 'kim', B: 'hwangyc', C: 'won', D: 'hwanggh' }, victim: '곽도현', state: initialState() };
+  const drafts = ['본론만 이야기함. 식당에 있었어요.', '식당에 있었어요.'];
+  const prompts = [];
+  const model = async (task, req) => {
+    if (task === 'draft') prompts.push(req.user);
+    return {
+      value: task === 'judge' ? JUDGED('case')
+        : task === 'draft' ? { reply: drafts[prompts.length - 1], emotion: '기본' }
+        : { result: { task: 'verify', reason: '통과', pass: true, disclosed: [] } },
+      metric: {}
+    };
+  };
+  const r = await runQuestion({ model, game, roleId: 'C', question: '점심시간에 어디 계셨어요?', attach: null, history: [] });
+  assert.equal(prompts.length, 2, '한 번 다시 만든다');
+  assert.match(prompts[1], /본론만 이야기함/, '반려 이유를 알려 준다');
+  assert.equal(r.reply, '식당에 있었어요.');
+  assert.equal(r.pass, true);
+});
 test('질문 처리: 영문이 섞인 잡담 답은 검증을 건너뛰지 않는다', async () => {
   const { runQuestion } = await import('../lib/ai/pipeline.mjs');
   const { initialState } = await import('../lib/game/game.mjs');
