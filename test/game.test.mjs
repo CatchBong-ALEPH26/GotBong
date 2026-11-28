@@ -573,7 +573,15 @@ test('캐시 친화 배치: 판정·검증의 앞부분과 스키마가 같고 �
   // 1) 판정·검증·두 번째 판정 모두 system 전체가 같고 스키마 객체도 같다 (할 작업은 user 맨 끝에서 고른다)
   assert.ok(fast.every(r => r.system.join('\n') === fast[0].system.join('\n')), '판정·검증 system 전체 동일');
   assert.ok(fast.every(r => r.schema === fast[0].schema), '스키마 동일');
-  assert.equal(new Set(requests.map(r => r.cacheKey)).size, 1, '같은 게임·NPC는 같은 캐시 키');
+  assert.equal(new Set(requests.map(r => r.cacheKey)).size, 1, '같은 게임은 같은 캐시 키');
+  // 1-0) 캐시 키는 게임 단위: 같은 게임의 다른 NPC 도 같은 키(전역 규칙 캐시를 같은 서버에서 같이 쓰도록), 다른 게임은 다른 키
+  const { cacheKeyOf } = await import('../lib/ai/pipeline.mjs');
+  const before = requests.length;
+  await runQuestion({ model, game, roleId: 'C', question: '이 기록 보세요', attach: { type: 'clue', id: 'source', title: '소스 열람 기록' }, history: [] });
+  assert.equal(new Set(requests.map(r => r.cacheKey)).size, 1, '같은 게임의 다른 NPC 도 같은 캐시 키');
+  assert.ok(requests.length > before);
+  assert.notEqual(cacheKeyOf(game), cacheKeyOf({ ...game, id: 'g-2' }), '다른 게임은 다른 키');
+  assert.ok(!cacheKeyOf(game).includes(game.id), '게임 ID 원문은 보내지 않는다');
   // 1-1) 정적 → 동적: 맨 앞은 모든 게임·NPC 공통 규칙(T0), 그다음 게임·NPC 자료(T2)
   const P = await import('../lib/ai/prompts.mjs');
   assert.equal(fast[0].system[0], P.FAST_RULES, '빠른 모델 맨 앞은 전역 고정 규칙');
