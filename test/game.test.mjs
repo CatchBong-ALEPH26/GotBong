@@ -448,7 +448,7 @@ test('질문 처리: 판정을 먼저 기다리고 메인 모델은 한 번만, 
     const model = async (task, req) => {
       order.push(task);
       if (task === 'judge') {
-        assert.ok(req.system[0].includes('[대상의 사실 목록') && req.user.includes('[사실 상태'), '판정 입력: 사실 목록(고정) + 사실 상태(가변)');
+        assert.ok(req.system[1].includes('[대상의 사실 목록') && req.user.includes('[사실 상태'), '판정 입력: 사실 목록(고정) + 사실 상태(가변)');
         assert.ok(!(req.system.join('') + req.user).includes('범인은'), '판정 입력에 정답(진상 문서) 없음');
         return { value: judged, metric: {} };
       }
@@ -549,13 +549,18 @@ test('캐시 친화 배치: 판정·검증의 앞부분과 스키마가 같고 �
   }
   const fast = requests.filter(r => r.task !== 'draft');
   assert.deepEqual(fast.map(r => r.task), ['judge', 'verify', 'judge', 'verify']);
-  // 1) 판정·검증·두 번째 판정 모두 같은 첫 system 블록과 같은 스키마 객체
-  assert.ok(fast.every(r => r.system[0] === fast[0].system[0]), '고정 앞부분 동일');
+  // 1) 판정·검증·두 번째 판정 모두 system 전체가 같고 스키마 객체도 같다 (할 작업은 user 맨 끝에서 고른다)
+  assert.ok(fast.every(r => r.system.join('\n') === fast[0].system.join('\n')), '판정·검증 system 전체 동일');
   assert.ok(fast.every(r => r.schema === fast[0].schema), '스키마 동일');
   assert.equal(new Set(requests.map(r => r.cacheKey)).size, 1, '같은 게임·NPC는 같은 캐시 키');
-  // 2) 앞부분에는 상태가 없다 (해금 후에도 같음), 사실은 전부 고정 순서로
-  assert.ok(roles.B.facts.every(f => fast[0].system[0].includes(`(${f.id})`)));
-  assert.ok(!/해금 가능|이미 털어놓음|앞 단계 미충족/.test(fast[0].system[0]));
+  // 1-1) 정적 → 동적: 맨 앞은 모든 게임·NPC 공통 규칙(T0), 그다음 게임·NPC 자료(T2)
+  const P = await import('../lib/ai/prompts.mjs');
+  assert.equal(fast[0].system[0], P.FAST_RULES, '빠른 모델 맨 앞은 전역 고정 규칙');
+  assert.ok(fast.filter(r => r.task === 'judge').every(r => r.user.endsWith(P.JUDGE_TASK)), '판정 작업 선택은 user 맨 끝');
+  assert.ok(fast.filter(r => r.task === 'verify').every(r => r.user.endsWith(P.VERIFY_TASK)), '검증 작업 선택은 user 맨 끝');
+  // 2) 게임 자료에는 상태가 없다 (해금 후에도 같음), 사실은 전부 고정 순서로
+  assert.ok(availableFacts('B', game.cast._alibi ?? 'A').every(f => fast[0].system[1].includes(`(${f.id})`)));
+  assert.ok(!/해금 가능|이미 털어놓음|앞 단계 미충족/.test(fast[0].system[1]), '게임 자료(T2)에 진행 상태 없음');
   // 3) 가변 부분은 대화 기록이 맨 앞이고, 다음 질문의 기록은 앞 질문 기록 뒤에 붙기만 한다
   const drafts = requests.filter(r => r.task === 'draft');
   assert.equal(drafts[0].system, drafts[1].system, '초안 system 고정');
@@ -564,6 +569,28 @@ test('캐시 친화 배치: 판정·검증의 앞부분과 스키마가 같고 �
   assert.match(line1, /이 기록 보세요/);
   // 4) 키·시각 같은 바뀌는 값이 앞부분에 없다
   assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(fast[0].system.join('')));
+  // 5) 초안: system 은 전역 규칙(T0) → 캐릭터(T1) → 역할(T2), user 는 기록(T3) → 진행 상태(T4) → 이번 질문(T5)
+  const ds = drafts[0].system;
+  assert.ok(ds.startsWith(P.DRAFT_RULES), '초안 맨 앞은 전역 고정 규칙');
+  assert.ok(ds.indexOf('[캐릭터:') < ds.indexOf('[역할]'), '캐릭터 → 역할');
+  const du = drafts[1].user;
+  const at = s => du.indexOf(s);
+  assert.ok(at('[대화 기록') === 0 && at('[대화 기록') < at('[지금 말할 수 있는 것]'), '기록이 맨 앞');
+  assert.ok(at('[숨기고 있는 것') < at('[이번 질문에 새로 인정할 것'), '해금 때만 바뀌는 상태가 질문마다 바뀌는 것보다 앞');
+  assert.ok(at('[이번 질문에 새로 인정할 것') < at('[질문 (데이터)]'), '질문이 상태보다 뒤');
+});
+
+test('동기 채점: 규칙과 기준 동기는 system(정적), 답안만 user(동적)', async () => {
+  const { gradeMotive } = await import('../lib/ai/pipeline.mjs');
+  const P = await import('../lib/ai/prompts.mjs');
+  const seen = [];
+  const model = async (task, req) => { seen.push(req); return { value: { match: true }, metric: {} }; };
+  await gradeMotive({ model, reference: '기준', answer: '답안 하나' });
+  await gradeMotive({ model, reference: '기준', answer: '다른 답안' });
+  assert.deepEqual(seen[0].system, seen[1].system);
+  assert.equal(seen[0].system[0], P.MOTIVE_RULES);
+  assert.ok(!seen[0].system.join('').includes('답안 하나'));
+  assert.ok(seen[0].user.includes('답안 하나') && !seen[0].user.includes('기준'));
 });
 
 test('속마음 힌트: 단서 이름·사실 내용·증거 위치·인물·정답 확인·점수가 들어가지 않는다', async () => {
