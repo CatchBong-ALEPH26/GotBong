@@ -1,6 +1,7 @@
 
 import { env } from "cloudflare:workers";
 import { openD1 } from "../../../lib/server/db-d1.mjs";
+import { FIXED_VICTIM } from "../../../lib/game/data/ransomware.mjs";
 import { publicCase } from "../../../lib/game/game.mjs";
 import { modelFromEnv } from "../../../lib/ai/llm.mjs";
 import { say } from "../../../lib/game/data/thoughts.mjs";
@@ -35,6 +36,11 @@ export async function GET(request) {
     const cookie = getGameId(request);
     let game = cookie ? await db.getGame(cookie) : null;
     let newGameCreated = false;
+
+    if (game && game.victim !== FIXED_VICTIM) {
+      game = await openRoom(db, env, { player, ipHash: await ipKey(request), replacing: game.id, now });
+      newGameCreated = true;
+    }
 
     if (game) {
       // 2. 진행 중이면 마지막 활동 시각을 갱신하고(최소 간격), 휴면이면 그 자리에서 만료로 기록한다.
