@@ -1,3 +1,4 @@
+import { FIXED_VICTIM } from "../../../lib/game/data/ransomware.mjs";
 import { env } from "cloudflare:workers";
 
 import { openD1 } from "../../../lib/server/db-d1.mjs";
@@ -35,6 +36,9 @@ export async function POST(request) {
     if (!game) {
       throw new GameHttpError(409, say("noSession"));
     }
+
+    // 예전 사건(v3.6 이전) 방에는 새 사건 단서를 기록하지 않는다. 세션을 다시 읽으면 새 방으로 바뀐다
+    if (game.victim !== FIXED_VICTIM) throw new GameHttpError(409, say("noSession"));
 
     // 조사도 방 활동이다: 차단된 방이면 거절, 진행 중이면 마지막 활동 시각 갱신(최소 간격)
     await checkRoom(db, game, { touch: true });
