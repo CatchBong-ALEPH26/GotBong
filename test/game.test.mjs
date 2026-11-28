@@ -13,11 +13,11 @@ import {
 } from '../lib/game/game.mjs';
 import { runQuestion } from '../lib/ai/pipeline.mjs';
 import { fixture } from '../lib/ai/llm.mjs';
-import { characterIds } from '../lib/game/data/characters.mjs';
+import { characterIds, characters, SITUATIONS, AUDIENCES } from '../lib/game/data/characters.mjs';
 import { roles, roleIds } from '../lib/game/data/case.mjs';
 import { ALIBIS, FIXED_VICTIM, availableFacts, getMaterial, scoreGrade } from '../lib/game/data/ransomware.mjs';
 import { victims } from '../lib/game/data/victims.mjs';
-import { addressTable } from '../lib/ai/prompts.mjs';
+import { addressTable, characterBlock } from '../lib/ai/prompts.mjs';
 
 test('조사: 받침 유무와 ㄹ 받침', () => {
   assert.equal(josa('곽도현', '이/가'), '곽도현이');
@@ -627,4 +627,26 @@ test('반복 실패 힌트: 같은 기준이 게임 단위로 연속 3번 낮으
   // 해당 없는 기준(첨부 없을 때 G2)은 그대로
   ({ lows } = updateLows({ G2: 2 }, lowFlags([good])));
   assert.equal(lows.G2, 2);
+});
+
+test('캐릭터 시트: 성격 + 말버릇 앙케이트만 남고, 앙케이트 필수 칸(평상시)이 있고, 프롬프트에 원문 그대로 실린다', () => {
+  const allowed = ['id', 'name', 'summary', 'address', 'personality', 'speech'];
+  for (const id of characterIds) {
+    const c = characters[id];
+    assert.deepEqual(Object.keys(c).sort(), [...allowed].sort(), id);
+    assert.ok(c.personality.length > 0, id);
+    for (const part of ['register', 'endings']) {
+      for (const a of AUDIENCES) assert.ok(c.speech[part][a]?.['평상시'], `${id} ${part} ${a} 평상시`);
+    }
+    for (const a of AUDIENCES) {
+      for (const v of Object.values(c.speech.register[a])) assert.ok(['반말', '존댓말', '섞음'].includes(v), `${id} ${a} ${v}`);
+    }
+    assert.ok(c.speech.examples['평상시'], id + ' 예문 평상시');
+    for (const part of ['openers', 'fillers', 'length', 'examples']) {
+      for (const k of Object.keys(c.speech[part])) assert.ok(!SITUATIONS.includes(k) || typeof c.speech[part][k] === 'string', `${id} ${part} ${k}`);
+    }
+    const block = characterBlock(id);
+    for (const v of Object.values(c.speech.examples)) assert.ok(block.includes(v), id + ' 예문 원문');
+    assert.ok(!/잡담용 정보|금지 주제|취조받을 때/.test(block), id + ' 예전 시트 항목 없음');
+  }
 });
